@@ -1,0 +1,348 @@
+openapi: 3.0.3
+info:
+  title: Marketplace API
+  version: 1.0.0
+  description: >
+    Marketplace API contract: browsing products and placing orders.
+    This spec is the source of truth for the course project — every endpoint
+    implemented in the app must match what is declared here.
+servers:
+  - url: http://localhost:3000/v1
+    description: Local development server
+
+security: []
+
+tags:
+  - name: Products
+    description: Browsing the product catalog.
+  - name: Orders
+    description: Placing and inspecting orders.
+
+paths:
+  /products:
+    get:
+      operationId: listProducts
+      summary: List products
+      description: >
+        Returns a page of products ordered by creation date (newest first).
+        Use cursor-based pagination to walk through the full catalog without
+        the "page drift" you get from offset pagination when items are added
+        concurrently.
+      tags: [Products]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of items to return in one page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque pagination cursor. Omit it to fetch the first page; pass
+            the `next_cursor` value from the previous response to fetch the
+            next one. Clients must not try to parse or construct this value.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+        "400":
+          description: The `cursor` query parameter is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /products/{productId}:
+    get:
+      operationId: getProduct
+      summary: Get a product by id
+      description: Returns a single product by its identifier.
+      tags: [Products]
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          description: Product identifier.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: No product with this id exists.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /orders:
+    get:
+      operationId: listOrders
+      summary: List orders
+      description: >
+        Returns a page of orders ordered by creation date (newest first),
+        using the same cursor-pagination contract as `GET /products`.
+      tags: [Orders]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of items to return in one page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: >
+            Opaque pagination cursor returned as `next_cursor` by a previous
+            call. Omit it to fetch the first page.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderPage"
+        "400":
+          description: The `cursor` query parameter is malformed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+    post:
+      operationId: createOrder
+      summary: Create an order
+      description: >
+        Creates a new order from a list of items. This endpoint must be
+        called with an `Idempotency-Key` header so that network retries
+        never create a duplicate order.
+      tags: [Orders]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: >
+            Client-generated unique key for this create request. Retrying
+            with the same key and the same request body returns the original
+            201 response again instead of creating a second order (safe
+            retry). Reusing the same key with a different body is rejected
+            with 422, and reusing it while the first request is still being
+            processed returns 409.
+          schema:
+            type: string
+            minLength: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created (or replayed from a previous identical request).
+          headers:
+            Location:
+              description: URL of the newly created order.
+              schema:
+                type: string
+            Idempotency-Replay:
+              description: >
+                Present and set to `true` only when this response is a
+                replay of an earlier request made with the same
+                Idempotency-Key and body.
+              schema:
+                type: string
+                enum: ["true"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          description: Missing `Idempotency-Key` header or an invalid request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: A request with the same Idempotency-Key is still being processed.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "422":
+          description: The same Idempotency-Key was reused with a different request body.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Get an order by id
+      description: Returns a single order by its identifier.
+      tags: [Orders]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Order identifier.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          description: No order with this id exists.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  schemas:
+    Product:
+      type: object
+      required: [id, name, price_cents, currency]
+      properties:
+        id:
+          type: string
+          example: prod_1
+        name:
+          type: string
+          example: Mechanical Keyboard
+        description:
+          type: string
+          example: Hot-swappable 75% mechanical keyboard.
+        price_cents:
+          type: integer
+          description: Price in the smallest currency unit (cents). Never a float or a decimal string.
+          example: 12999
+        currency:
+          type: string
+          example: USD
+
+    ProductPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page, or null when there are no more pages.
+
+    OrderItem:
+      type: object
+      required: [product_id, quantity]
+      properties:
+        product_id:
+          type: string
+          example: prod_1
+        quantity:
+          type: integer
+          minimum: 1
+          example: 2
+
+    CreateOrderRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/OrderItem"
+
+    Order:
+      type: object
+      required: [id, items, total_cents, currency, status, created_at]
+      properties:
+        id:
+          type: string
+          example: order_1
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        total_cents:
+          type: integer
+          description: Total price in the smallest currency unit (cents).
+          example: 25998
+        currency:
+          type: string
+          example: USD
+        status:
+          type: string
+          enum: [pending, paid, cancelled]
+          example: pending
+        created_at:
+          type: string
+          format: date-time
+
+    OrderPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Order"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page, or null when there are no more pages.
+
+    Problem:
+      type: object
+      description: RFC 9457 problem+json error body. Every 4xx/5xx response uses this shape.
+      required: [type, title, status, detail, instance]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: A URI identifying the problem type.
+          example: https://marketplace.example.com/problems/not-found
+        title:
+          type: string
+          description: Short, human-readable summary of the problem type.
+          example: Resource not found
+        status:
+          type: integer
+          description: The HTTP status code, repeated here for easier logging.
+          example: 404
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence.
+          example: Order order_99 was not found.
+        instance:
+          type: string
+          description: URI reference identifying the specific occurrence (usually the request path).
+          example: /v1/orders/order_99
