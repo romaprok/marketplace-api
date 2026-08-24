@@ -1,0 +1,33 @@
+{
+  "name": "marketplace-api",
+  "version": "1.0.0",
+  "description": "Marketplace API contract (OpenAPI) + a runtime-validated Express server that enforces it.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/*.test.mjs",
+    "lint:spec": "redocly lint openapi/openapi.yaml",
+    "bundle:spec": "redocly bundle openapi/openapi.yaml -o spec.json"
+  },
+  "keywords": [
+    "openapi",
+    "express",
+    "express-openapi-validator",
+    "problem-json",
+    "idempotency",
+    "cursor-pagination"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "4.22.2",
+    "express-openapi-validator": "5.6.2"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.46.0"
+  }
+}
