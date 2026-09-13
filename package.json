@@ -13,7 +13,14 @@
     "test": "node --test test/*.test.mjs",
     "lint:spec": "redocly lint openapi/openapi.yaml",
     "bundle:spec": "redocly bundle openapi/openapi.yaml -o spec.json",
-    "check:env": "node scripts/check-env-example.mjs"
+    "check:env": "node scripts/check-env-example.mjs",
+    "build": "tsc",
+    "migrate": "bash scripts/with-secrets.sh dev typeorm migration:run -d dist/data-source.js",
+    "migrate:show": "bash scripts/with-secrets.sh dev typeorm migration:show -d dist/data-source.js",
+    "migrate:revert": "bash scripts/with-secrets.sh dev typeorm migration:revert -d dist/data-source.js",
+    "seed": "bash scripts/with-secrets.sh dev node dist/seed.js",
+    "demo:nplus1": "bash scripts/with-secrets.sh dev node dist/demo-nplus1.js",
+    "report": "bash scripts/with-secrets.sh dev node dist/report.js"
   },
   "keywords": [
     "openapi",
@@ -32,9 +39,13 @@
     "express": "4.22.2",
     "express-openapi-validator": "5.6.2",
     "pg": "8.13.1",
+    "reflect-metadata": "0.2.2",
+    "typeorm": "0.3.31",
     "zod": "3.23.8"
   },
   "devDependencies": {
-    "@redocly/cli": "2.46.0"
+    "@redocly/cli": "2.46.0",
+    "@types/node": "22.15.29",
+    "typescript": "5.9.3"
   }
 }

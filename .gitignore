@@ -4,3 +4,6 @@ secrets/db_password
 spec.json
 *.log
 .DS_Store
+.secrets/
+dist/
+docker-compose.override.yml
