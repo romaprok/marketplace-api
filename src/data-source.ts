@@ -4,6 +4,7 @@ import { DataSource, type DataSourceOptions } from 'typeorm';
 import { Order } from './entities/Order.js';
 import { OrderItem } from './entities/OrderItem.js';
 import { Product } from './entities/Product.js';
+import { Task } from './entities/Task.js';
 import { User } from './entities/User.js';
 
 // Same shape as hw-11's config layer: DB_URL never carries a password,
@@ -32,7 +33,7 @@ export const dataSourceOptions: DataSourceOptions = {
   url: resolveConnectionUrl(),
   synchronize: false,
   logging: false,
-  entities: [User, Product, Order, OrderItem],
+  entities: [User, Product, Order, OrderItem, Task],
   migrations: ['dist/migrations/*.js'],
 };
 

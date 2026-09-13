@@ -31,6 +31,11 @@ export class Product {
   @Column({ type: 'varchar', default: 'active' })
   status!: ProductStatus;
 
+  // Decremented atomically by checkout() (hw-14) via a guarded UPDATE, not
+  // read-then-write — see src/checkout.ts.
+  @Column({ type: 'int', default: 0 })
+  stock!: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
