@@ -415,6 +415,8 @@ npm run test:contract      # Pact-консюмер, пише pacts/*.json
 npm run verify:provider    # провайдер проти локального pacts/*.json, брокер не потрібен
 ```
 
+Потрібен Node 22.22 або новіший: testcontainers 12 тягне `undici@8`, який на Node 20 падає ще до першого тесту з `webidl.util.markAsUncloneable is not a function`, і Pact теж вимагає 22. Dockerfile і CI вже на 22.
+
 Усі чотири компілюють `test/**/*.ts` окремим `tsconfig.test.json` у `dist-test/`, основний `dist/` від `npm run build` лишається як був. Запускаються через `node --experimental-vm-modules`, бо проєкт увесь на ESM, а Jest 30 досі тримає ESM за цим прапорцем. `pacts/` лежить у `.gitignore`: контракт щоразу генерує `npm run test:contract`, і в CI так само.
 
 ### Локальний брокер і повний гейт `can-i-deploy`
