@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import * as OpenApiValidator from "express-openapi-validator";
 
+import { configService } from "./config/config.service.js";
+import { checkDbConnection } from "./db/pool.js";
 import {
   products,
   orders,
@@ -21,6 +23,22 @@ const apiSpecPath = path.join(__dirname, "..", "openapi", "openapi.yaml");
 export function createApp() {
   const app = express();
   app.use(express.json());
+
+  app.get("/health", async (req, res) => {
+    try {
+      await checkDbConnection();
+      res.json({ status: "ok", uptime: process.uptime(), db: "ok" });
+    } catch (err) {
+      res
+        .status(503)
+        .json({
+          status: "error",
+          uptime: process.uptime(),
+          db: "error",
+          message: err.message,
+        });
+    }
+  });
 
   app.use(
     OpenApiValidator.middleware({
@@ -134,3 +152,5 @@ export function createApp() {
 
   return app;
 }
+
+export { configService };

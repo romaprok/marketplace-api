@@ -1,82 +1,82 @@
-# Marketplace API — контракт спочатку
+# Marketplace API — конфіг, який не дає застосунку стартувати наосліп
 
-Це перше ДЗ курсового проєкту. Ідея проста: перед тим, як писати ендпоінти, ми спочатку домовляємось про контракт — пишемо OpenAPI-спеку, а потім робимо так, щоб код фізично не міг цей контракт порушити.
-
-Домен — маркетплейс: `/products` (каталог) і `/orders` (замовлення). П'ять операцій, cursor-пагінація, Idempotency-Key на створенні замовлення і problem+json на всіх помилках — все те, про що була дев'ята лекція.
-
-## Який варіант обрано
-
-**Варіант Б — runtime-валідація на кордоні.**
-
-Мінімальний Express-сервер, де `express-openapi-validator` валідує кожен запит і кожну відповідь проти `openapi/openapi.yaml`. Якщо хендлер спробує повернути щось, що не збігається зі схемою — впаде з помилкою ще до того, як відповідь піде клієнту. Спека тут не просто документація, а те, що реально контролює поведінку сервера.
-
-## Структура
+Друге ДЗ курсового проєкту. Лягає поверх контракту з hw-09 і додає шар конфігурації та секретів: зламана змінна оточення валить процес одразу на старті з зрозумілою помилкою — а не десь посеред ночі на першому реальному запиті, і жоден секрет не лежить ні в git, ні в шарах docker-образу.
 
 ```
-openapi/openapi.yaml   — контракт: 2 ресурси, 5 операцій, cursor-пагінація, Idempotency-Key, problem+json
-src/
-  app.js                — Express-застосунок + express-openapi-validator
-  server.js             — точка входу (npm start)
-  data.js               — in-memory "база" (products, orders)
-  pagination.js         — cursor-пагінація (encode/decode курсору)
-  problem.js            — RFC 9457 problem+json хелпери
-  idempotency.js        — Idempotency-Key: replay / conflict / mismatch
-test/
-  app.test.mjs           — інтеграційні тести на всі сценарії нижче
+process.env → zod-схема (fail-fast) → ConfigService → код
+secrets/db_password → password: () => readFile() → pg.Pool → Postgres
 ```
 
-## Швидкий старт
+Фінальний штрих — ротація пароля БД без рестарту сервісу.
+
+## Configuration
+
+Усі змінні описані в `src/config/env.schema.js` однією zod-схемою. `.env.example` — контракт, синхронність із схемою перевіряє `npm run check:env`. Реальний `.env` в git не потрапляє.
+
+| Змінна | Обов'язкова | За замовчуванням | Що це |
+|---|---|---|---|
+| `NODE_ENV` | ні | `development` | `development` \| `production` \| `test` |
+| `PORT` | ні | `3000` | Порт, на якому слухає HTTP-сервер |
+| `DB_URL` | **так** | — | Рядок підключення до Postgres без пароля, напр. `postgres://marketplace@localhost:5432/marketplace` |
+| `DB_PASSWORD_FILE` | ні | `./secrets/db_password` | Шлях до файла з поточним паролем БД |
+| `IDEMPOTENCY_TTL_HOURS` | ні | `24` | Скільки годин пам'ятаємо Idempotency-Key |
+| `LOG_LEVEL` | ні | `info` | `debug` \| `info` \| `warn` \| `error` |
+
+Пароль БД **не** зчитується з env — тільки з файлу (`DB_PASSWORD_FILE`), і `pg.Pool` перечитує цей файл на кожне нове з'єднання. Завдяки цьому пароль можна ротувати без рестарту процесу.
+
+### Як запустити
 
 ```bash
 npm install
+cp .env.example .env
+cp secrets/db_password.example secrets/db_password
+
+docker compose up -d          # піднімає Postgres з тим самим паролем, що в secrets/db_password.example
 npm start
 ```
 
-Сервер піднімається на `http://localhost:3000/v1`.
-
-## Що можна перевірити руками
+Перевірка, що все підключилось:
 
 ```bash
-# Каталог товарів, cursor-пагінація
-curl "http://localhost:3000/v1/products?limit=2"
-
-# Товар за id
-curl http://localhost:3000/v1/products/prod_1
-
-# Створення замовлення без Idempotency-Key — 400, і це не if у коді,
-# це спека каже валідатору, що заголовок required
-curl -si -X POST http://localhost:3000/v1/orders \
-  -H 'content-type: application/json' \
-  -d '{"items":[{"product_id":"prod_1","quantity":1}]}'
-
-# З ключем — 201 + Location
-curl -si -X POST http://localhost:3000/v1/orders \
-  -H 'content-type: application/json' \
-  -H 'Idempotency-Key: demo-key-1' \
-  -d '{"items":[{"product_id":"prod_1","quantity":2}]}'
-
-# Той самий ключ + те саме тіло — повертає той самий 201,
-# але з заголовком Idempotency-Replay: true
-curl -si -X POST http://localhost:3000/v1/orders \
-  -H 'content-type: application/json' \
-  -H 'Idempotency-Key: demo-key-1' \
-  -d '{"items":[{"product_id":"prod_1","quantity":2}]}'
-
-# Той самий ключ, інше тіло — 422
-curl -si -X POST http://localhost:3000/v1/orders \
-  -H 'content-type: application/json' \
-  -H 'Idempotency-Key: demo-key-1' \
-  -d '{"items":[{"product_id":"prod_2","quantity":1}]}'
+curl http://localhost:3000/health
+# {"status":"ok","uptime":1.23,"db":"ok"}
 ```
 
-Усі помилки повертаються в форматі `application/problem+json` (RFC 9457) — один парсер для будь-якого фейлу, без сюрпризів.
-
-## Перевірка спеки
+Якщо прибрати обов'язкову змінну — процес одразу падає з описом того, що саме не так:
 
 ```bash
-npm run lint:spec        # exit 0, warnings — ок, errors — ні
-npm run bundle:spec      # збирає spec.json для подальших перевірок
+env -u DB_URL npm run start
+# Invalid environment configuration:
+#   - DB_URL: Required
 ```
+
+### Як виконати ротацію пароля
+
+```bash
+bash rotate.sh
+```
+
+Скрипт (виконується всередині контейнера Postgres через `docker compose exec`, локальний `psql` не потрібен):
+
+1. Міняє пароль ролі в самій базі (`ALTER ROLE ... WITH PASSWORD ...`) — це першоджерело правди.
+2. Тільки після успіху перезаписує `secrets/db_password`.
+3. Розриває старі з'єднання (`pg_terminate_backend`), щоб пул був змушений відкрити нові — саме нові з'єднання підхоплюють оновлений пароль.
+
+Сервер під час усього цього не перезапускається — `curl http://localhost:3000/health` продовжує повертати 200, а `uptime` у відповіді тільки росте.
+
+Якщо після цього зробити `docker compose down -v` — Postgres підніметься заново зі стартовим паролем з `db/init.sql`, а `secrets/db_password` лишиться зі старим (ротованим) значенням. Щоб знову синхронізувати — `cp secrets/db_password.example secrets/db_password`.
+
+### Перевірка, що конфіг не розповзається
+
+```bash
+npm run check:env    # .env.example відповідає env.schema.js
+```
+
+## Секрети поза git і поза образом
+
+- `.env` і `secrets/db_password` — у `.gitignore`, у git лежить лише `.env.example` і `secrets/db_password.example`.
+- `Dockerfile` копіює тільки код і `.env.example`; `.dockerignore` виключає `.env`, `secrets/`, тести і решту, що застосунку в проді не треба.
+- Пароль в образ не потрапляє на жодному шарі — можна перевірити `docker history --no-trunc <image> | grep -i password`, там пусто.
 
 ## Тести
 
@@ -84,12 +84,10 @@ npm run bundle:spec      # збирає spec.json для подальших пе
 npm test
 ```
 
-Ганяє інтеграційні тести проти живого застосунку (без mock'ів) — каталог, пагінація, валідація, ідемпотентність, 404/400/409/422.
-
 ## Чому саме так
 
-- **Cursor, а не offset.** Offset-пагінація дрейфить, якщо між запитами хтось встиг щось додати чи видалити — ви або пропустите елемент, або побачите дублікат. Курсор — непрозорий токен, прив'язаний до конкретного елемента, тому дрейфу нема.
-- **Idempotency-Key на POST /orders.** Мережа ненадійна, клієнти ретраять запити. Без ключа повторний ретрай = друге замовлення. З ключем — другий виклик з тим самим тілом просто повертає той самий результат.
-- **problem+json скрізь.** Раніше типова ситуація — три різні формати помилки для трьох різних ендпоінтів, і клієнту доводиться писати парсер під кожен. Один формат — один парсер.
-- **total_cents, а не total.** Ціна — ціле число в копійках/центах, не рядок-decimal і не float. Це рятує від купи болю з парсингом і округленням на клієнті.
-- **express-openapi-validator, а не "довіряй та перевіряй".** Спека без валідатора — просто файл, який почне брехати після першого рефакторингу. Валідатор — це те, що фізично не дає коду розійтися з контрактом.
+- **`z.coerce.number()`, а не `z.number()`.** Усе, що приходить з env, — рядок; без `coerce` схема впаде на будь-якому числовому полі.
+- **Секрет із файлу, а не з env.** Env-змінні надто легко просвічуються (process listings, CI-логи, `docker inspect`, crash-репортери) — файл, який читає лише власний користувач застосунку, звужує поверхню витоку і дозволяє міняти значення без зміни env і рестарту.
+- **`password` як функція, а не рядок.** `pg` викликає її на кожне нове фізичне з'єднання — саме це дає ротацію без рестарту.
+- **`pool.on('error', ...)` обов'язковий.** Після `pg_terminate_backend` будь-який простійний клієнт зі старим паролем кине неопрацьовану `'error'`-подію — без обробника процес впаде, і це не баг ротації, а відсутній listener.
+- **`ALTER ROLE` → файл → `pg_terminate_backend`, саме в такому порядку.** Якщо перший крок впаде, файл (і застосунок) лишаються синхронними з тим, що БД реально приймає.

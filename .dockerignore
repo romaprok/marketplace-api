@@ -1,0 +1,13 @@
+node_modules
+.env
+secrets
+.git
+.gitignore
+*.log
+spec.json
+test
+README.md
+rotate.sh
+docker-compose.yml
+Dockerfile
+.dockerignore
