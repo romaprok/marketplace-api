@@ -7,3 +7,6 @@ spec.json
 .secrets/
 dist/
 docker-compose.override.yml
+backups/
+dist-test/
+pacts/
