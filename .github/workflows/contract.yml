@@ -1,0 +1,75 @@
+name: contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npx tsc --noEmit
+      # Both suites provision their own throwaway Postgres via testcontainers
+      # — GitHub's ubuntu-latest runners have Docker preinstalled, nothing
+      # else to set up here.
+      - run: npm run test:integration
+      - run: npm run test:e2e
+
+  contract:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      # Repo secrets once there's a hosted broker. Until then, the broker this
+      # job starts from docker-compose.yml: a local address, not a secret.
+      PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL || 'http://127.0.0.1:9292' }}
+      PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+      # One version string shared by both pacticipants in this pipeline —
+      # nothing requires that, it's just simpler to track through one run.
+      PACT_PROVIDER_VERSION: ${{ github.sha }}
+      VERSION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+
+      - name: Start Pact Broker
+        run: docker compose up -d --wait broker-db broker
+
+      - name: Generate the consumer contract
+        run: npm run test:contract
+
+      - name: Publish the contract to the broker
+        run: |
+          auth=()
+          if [ -n "$PACT_BROKER_TOKEN" ]; then auth=(-H "Authorization: Bearer $PACT_BROKER_TOKEN"); fi
+          curl -sf "${auth[@]}" -X PUT \
+            "$PACT_BROKER_URL/pacts/provider/marketplace-api/consumer/marketplace-web/version/$VERSION" \
+            -H 'Content-Type: application/json' \
+            -d @pacts/marketplace-web-marketplace-api.json
+
+      - name: Verify provider and publish the verification result
+        run: npm run verify:provider
+
+      - name: Tag the verified provider version as prod
+        run: |
+          auth=()
+          if [ -n "$PACT_BROKER_TOKEN" ]; then auth=(-H "Authorization: Bearer $PACT_BROKER_TOKEN"); fi
+          curl -sf "${auth[@]}" -X PUT \
+            "$PACT_BROKER_URL/pacticipants/marketplace-api/versions/$VERSION/tags/prod" \
+            -H 'Content-Type: application/json'
+
+      - name: can-i-deploy
+        run: |
+          auth=()
+          if [ -n "$PACT_BROKER_TOKEN" ]; then auth=(-H "Authorization: Bearer $PACT_BROKER_TOKEN"); fi
+          response="$(curl -sf "${auth[@]}" "$PACT_BROKER_URL/can-i-deploy?pacticipant=marketplace-web&version=$VERSION&to=prod")"
+          echo "$response"
+          echo "$response" | grep -q '"deployable":true' || { echo "can-i-deploy: not deployable"; exit 1; }
