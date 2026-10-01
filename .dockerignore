@@ -11,3 +11,5 @@ rotate.sh
 docker-compose.yml
 Dockerfile
 .dockerignore
+backups
+pgbouncer
