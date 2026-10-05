@@ -8,3 +8,5 @@ spec.json
 dist/
 docker-compose.override.yml
 backups/
+dist-test/
+pacts/
