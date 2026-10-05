@@ -47,7 +47,7 @@ export function findOrder(id) {
   return orders.find((o) => o.id === id);
 }
 
-export function createOrderFromItems(items) {
+export function createOrderFromItems(items, buyerId = null) {
   let total_cents = 0;
   for (const item of items) {
     const product = findProduct(item.product_id);
@@ -61,6 +61,7 @@ export function createOrderFromItems(items) {
 
   const order = {
     id: `order_${nextOrderId++}`,
+    buyer_id: buyerId,
     items,
     total_cents,
     currency: "USD",
