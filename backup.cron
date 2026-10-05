@@ -1,0 +1,4 @@
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# every night at 03:00
+0 3 * * * cd /opt/marketplace-api && bash scripts/with-secrets.sh prod bash scripts/backup.sh >> /var/log/marketplace-backup.log 2>&1
