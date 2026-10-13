@@ -16,6 +16,10 @@ import {
 import { paginate } from "./pagination.js";
 import { sendProblem } from "./problem.js";
 import { idempotency } from "./idempotency.js";
+import {
+  streamOrderEvents,
+  updateOrderStatus,
+} from "./orders/orders.controller.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiSpecPath = path.join(__dirname, "..", "openapi", "openapi.yaml");
@@ -39,6 +43,10 @@ export function createApp() {
         });
     }
   });
+
+  // SSE lives outside /v1 and outside the OpenAPI validator: a stream that
+  // never ends has no response body the validator could check.
+  app.get("/orders/:orderId/events", streamOrderEvents);
 
   app.use(
     OpenApiValidator.middleware({
@@ -96,7 +104,10 @@ export function createApp() {
 
   router.post("/orders", idempotency, (req, res, next) => {
     try {
-      const order = createOrderFromItems(req.body.items);
+      const order = createOrderFromItems(
+        req.body.items,
+        req.get("x-user-id") ?? null,
+      );
       res.status(201).set("Location", `/v1/orders/${order.id}`).json(order);
     } catch (err) {
       next(err);
@@ -118,6 +129,8 @@ export function createApp() {
     }
     res.json(order);
   });
+
+  router.patch("/orders/:orderId/status", updateOrderStatus);
 
   app.use("/v1", router);
 

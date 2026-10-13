@@ -153,6 +153,16 @@ paths:
           schema:
             type: string
             minLength: 1
+        - name: X-User-Id
+          in: header
+          required: false
+          description: >
+            Stand-in for real authentication, which this API doesn't have yet.
+            The order is recorded as belonging to this user, and only this
+            user may subscribe to its realtime status updates over WebSocket.
+          schema:
+            type: string
+            minLength: 1
       requestBody:
         required: true
         content:
@@ -225,6 +235,49 @@ paths:
               schema:
                 $ref: '#/components/schemas/Problem'
 
+  /orders/{orderId}/status:
+    patch:
+      operationId: updateOrderStatus
+      summary: Change an order's status
+      description: >
+        Sets the order's status and publishes an `order.status` event to
+        everyone subscribed to this order, over WebSocket (room
+        `orders:{orderId}`) and SSE (`GET /orders/{orderId}/events`,
+        outside the /v1 prefix).
+      tags: [Orders]
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: Order identifier.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateOrderStatusRequest'
+      responses:
+        '200':
+          description: The order with its new status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: Missing or unknown status.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: No order with this id exists.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
 components:
   schemas:
     Product:
@@ -283,6 +336,15 @@ components:
           items:
             $ref: '#/components/schemas/OrderItem'
 
+    UpdateOrderStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [pending, paid, cancelled]
+          example: paid
+
     Order:
       type: object
       required: [id, items, total_cents, currency, status, created_at]
@@ -290,6 +352,11 @@ components:
         id:
           type: string
           example: order_1
+        buyer_id:
+          type: string
+          nullable: true
+          description: The X-User-Id the order was created with, or null.
+          example: alice
         items:
           type: array
           items:
