@@ -34,7 +34,11 @@
     "consumer": "bash scripts/with-secrets.sh dev node dist/consumer.js",
     "demo:publish": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-publish.js",
     "demo:dlq": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-dlq.js",
-    "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js"
+    "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js",
+    "relay": "bash scripts/with-secrets.sh dev node dist/relay.js",
+    "demo:outbox": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-outbox.js",
+    "demo:crash-write": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-write.js",
+    "demo:crash-relay": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-relay.js"
   },
   "keywords": [
     "openapi",

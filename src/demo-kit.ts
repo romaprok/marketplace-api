@@ -25,7 +25,12 @@ export async function prepareDemo(): Promise<Demo> {
   await ds.initialize();
   await ds.runMigrations();
 
-  // orders cascade to order_items, tasks and fulfillments
+  // outbox and processed_messages don't hang off orders by FK, so they go
+  // first, found through the buyer in the event payload
+  const demoEvents = `SELECT id FROM outbox WHERE payload->'data'->>'buyerId' IN (SELECT id::text FROM users WHERE email LIKE $1)`;
+  await ds.query(`DELETE FROM processed_messages WHERE message_id IN (SELECT id::text FROM (${demoEvents}) e)`, [DEMO_EMAIL]);
+  await ds.query(`DELETE FROM outbox WHERE id IN (${demoEvents})`, [DEMO_EMAIL]);
+  // orders cascade to order_items, tasks, fulfillments and idempotency_keys
   await ds.query(`DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE email LIKE $1)`, [DEMO_EMAIL]);
   await ds.query(`DELETE FROM products WHERE seller_id IN (SELECT id FROM users WHERE email LIKE $1)`, [DEMO_EMAIL]);
   await ds.query(`DELETE FROM users WHERE email LIKE $1`, [DEMO_EMAIL]);

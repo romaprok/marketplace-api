@@ -1,10 +1,12 @@
 // npm run demo:duplicate — the same event delivered twice, the effect
 // applied once.
+import { randomUUID } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { ChildMessage } from './demo-duplicate-child.js';
 import { countFulfillments, createBuyerAndProduct, finish, prepareDemo, report, sleep, waitFor } from './demo-kit.js';
 import { consumeOrderPlaced } from './messaging/order-placed.consumer.js';
+import { relayOnce } from './messaging/outbox-relay.js';
 import { WAREHOUSE_DLQ, WAREHOUSE_QUEUE } from './messaging/topology.js';
 import { placeOrder } from './place-order.js';
 
@@ -29,7 +31,8 @@ async function main() {
   const { buyerId, productId } = await createBuyerAndProduct(demo.ds);
 
   // published while nobody consumes, so the child gets it first
-  const { orderId } = await placeOrder(demo.ds, demo.pub, buyerId, productId, 1);
+  const { orderId } = await placeOrder(demo.ds, { idempotencyKey: randomUUID(), buyerId, productId, quantity: 1 });
+  await relayOnce(demo.ds, demo.pub);
 
   // 1. effect committed, process killed before the ack
   const crashed = await runCrashingConsumer();

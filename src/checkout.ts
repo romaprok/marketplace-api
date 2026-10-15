@@ -1,4 +1,4 @@
-import type { DataSource } from 'typeorm';
+import type { DataSource, EntityManager } from 'typeorm';
 import { Order } from './entities/Order.js';
 import { OrderItem } from './entities/OrderItem.js';
 import { Task } from './entities/Task.js';
@@ -38,52 +38,61 @@ export async function checkout(
   productId: string,
   quantity: number,
 ): Promise<CheckoutResult> {
-  return dataSource.transaction(async (manager) => {
-    // manager.query() on an UPDATE/DELETE returns a [rows, rowCount] tuple
-    // (see TypeORM's PostgresQueryRunner.query — RETURNING rows only come
-    // back this way for UPDATE/DELETE commands, unlike SELECT/INSERT which
-    // return the rows array directly), so the RETURNING rows are the first
-    // element, not the result itself.
-    const [stockRows]: [Array<{ price: string; seller_id: string }>, number] = await manager.query(
-      `UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING price, seller_id`,
-      [quantity, productId],
-    );
-    if (stockRows.length === 0) {
-      throw new InsufficientStockError(productId);
-    }
-    const price = Number(stockRows[0]!.price);
-    const total = Math.round(price * quantity * 100) / 100;
+  return dataSource.transaction((manager) => checkoutWith(manager, buyerId, productId, quantity));
+}
 
-    const [balanceRows]: [Array<{ id: string }>, number] = await manager.query(
-      `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING id`,
-      [total, buyerId],
-    );
-    if (balanceRows.length === 0) {
-      throw new InsufficientBalanceError(buyerId);
-    }
+// The same checkout on a transaction someone else already opened, so more
+// writes (the outbox row, hw-22) can share its COMMIT.
+export async function checkoutWith(
+  manager: EntityManager,
+  buyerId: string,
+  productId: string,
+  quantity: number,
+): Promise<CheckoutResult> {
+  // manager.query() on an UPDATE/DELETE returns a [rows, rowCount] tuple
+  // (see TypeORM's PostgresQueryRunner.query — RETURNING rows only come
+  // back this way for UPDATE/DELETE commands, unlike SELECT/INSERT which
+  // return the rows array directly), so the RETURNING rows are the first
+  // element, not the result itself.
+  const [stockRows]: [Array<{ price: string; seller_id: string }>, number] = await manager.query(
+    `UPDATE products SET stock = stock - $1 WHERE id = $2 AND stock >= $1 RETURNING price, seller_id`,
+    [quantity, productId],
+  );
+  if (stockRows.length === 0) {
+    throw new InsufficientStockError(productId);
+  }
+  const price = Number(stockRows[0]!.price);
+  const total = Math.round(price * quantity * 100) / 100;
 
-    const order = manager.create(Order, {
-      buyer: { id: buyerId },
-      status: 'paid',
-      total,
-      currency: 'UAH',
-    } as Order);
-    await manager.save(order);
+  const [balanceRows]: [Array<{ id: string }>, number] = await manager.query(
+    `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1 RETURNING id`,
+    [total, buyerId],
+  );
+  if (balanceRows.length === 0) {
+    throw new InsufficientBalanceError(buyerId);
+  }
 
-    const item = manager.create(OrderItem, {
-      order,
-      product: { id: productId },
-      quantity,
-      unitPrice: price,
-    } as OrderItem);
-    await manager.save(item);
+  const order = manager.create(Order, {
+    buyer: { id: buyerId },
+    status: 'paid',
+    total,
+    currency: 'UAH',
+  } as Order);
+  await manager.save(order);
 
-    const task = manager.create(Task, {
-      type: 'send_receipt',
-      order,
-    } as Task);
-    await manager.save(task);
+  const item = manager.create(OrderItem, {
+    order,
+    product: { id: productId },
+    quantity,
+    unitPrice: price,
+  } as OrderItem);
+  await manager.save(item);
 
-    return { orderId: order.id, total };
-  });
+  const task = manager.create(Task, {
+    type: 'send_receipt',
+    order,
+  } as Task);
+  await manager.save(task);
+
+  return { orderId: order.id, total };
 }

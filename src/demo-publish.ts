@@ -1,6 +1,8 @@
 // npm run demo:publish — five orders, five events, five fulfillments.
+import { randomUUID } from 'node:crypto';
 import { countFulfillments, createBuyerAndProduct, finish, prepareDemo, report, sleep, waitFor } from './demo-kit.js';
 import { consumeOrderPlaced, PREFETCH } from './messaging/order-placed.consumer.js';
+import { relayOnce } from './messaging/outbox-relay.js';
 import { WAREHOUSE_DLQ, WAREHOUSE_QUEUE } from './messaging/topology.js';
 import { placeOrder } from './place-order.js';
 
@@ -25,10 +27,11 @@ async function main() {
 
   const orderIds: string[] = [];
   for (let i = 0; i < N; i++) {
-    const { orderId } = await placeOrder(demo.ds, demo.pub, buyerId, productId, 1);
+    const { orderId } = await placeOrder(demo.ds, { idempotencyKey: randomUUID(), buyerId, productId, quantity: 1 });
     orderIds.push(orderId);
   }
-  const published = orderIds.length;
+  // since hw-22 the orders only write the outbox; the relay is what publishes
+  const published = await relayOnce(demo.ds, demo.pub);
 
   await waitFor(() => acked >= N);
   // a bit longer, so an unexpected extra delivery would still be counted

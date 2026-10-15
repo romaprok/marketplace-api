@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
+
 // The wire contract of order.placed. Designed on purpose, not an ORM entity
-// spread into JSON: consumers in hw-22/hw-23 will read the same shape, and
+// spread into JSON: every later consumer reads this shape, and
 // an entity changes whenever the schema does.
 export interface OrderPlacedEvent {
   eventId: string;
@@ -16,11 +18,11 @@ export interface OrderPlacedEvent {
   };
 }
 
-export function orderPlacedEvent(data: OrderPlacedEvent['data']): OrderPlacedEvent {
+// eventId is the outbox row's id: the event is written once, then re-read
+// from that row on every publish attempt, so a redelivery carries the same id.
+export function orderPlacedEvent(data: OrderPlacedEvent['data'], eventId: string = randomUUID()): OrderPlacedEvent {
   return {
-    // Derived from the order, not a fresh UUID: an order is placed once, so
-    // re-publishing the "same" event after a lost confirm gives the same id.
-    eventId: `order.placed:${data.orderId}`,
+    eventId,
     type: 'order.placed',
     version: 1,
     occurredAt: new Date().toISOString(),
