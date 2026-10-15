@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
 import { DataSource, type DataSourceOptions } from 'typeorm';
+import { Fulfillment } from './entities/Fulfillment.js';
 import { Order } from './entities/Order.js';
 import { OrderItem } from './entities/OrderItem.js';
 import { Product } from './entities/Product.js';
@@ -33,7 +34,7 @@ export const dataSourceOptions: DataSourceOptions = {
   url: resolveConnectionUrl(),
   synchronize: false,
   logging: false,
-  entities: [User, Product, Order, OrderItem, Task],
+  entities: [User, Product, Order, OrderItem, Task, Fulfillment],
   migrations: ['dist/migrations/*.js'],
 };
 
