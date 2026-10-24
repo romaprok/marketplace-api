@@ -21,6 +21,10 @@ export const envSchema = z.object({
 
   DB_PASSWORD_FILE: z.string().min(1).default("./secrets/db_password"),
 
+  // Only the order.placed publisher/consumer need it; the HTTP API starts
+  // without a broker.
+  BROKER_URL: z.string().url().optional(),
+
   IDEMPOTENCY_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),

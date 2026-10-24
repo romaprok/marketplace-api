@@ -30,7 +30,11 @@
     "test:integration": "npm run build:test && node --experimental-vm-modules node_modules/.bin/jest dist-test/test/integration",
     "test:e2e": "npm run build:test && node --experimental-vm-modules node_modules/.bin/jest dist-test/test/e2e",
     "test:contract": "npm run build:test && node --experimental-vm-modules node_modules/.bin/jest dist-test/test/contract/consumer",
-    "verify:provider": "npm run build:test && node dist-test/test/contract/provider/verify.js"
+    "verify:provider": "npm run build:test && node dist-test/test/contract/provider/verify.js",
+    "consumer": "bash scripts/with-secrets.sh dev node dist/consumer.js",
+    "demo:publish": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-publish.js",
+    "demo:dlq": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-dlq.js",
+    "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js"
   },
   "keywords": [
     "openapi",
@@ -45,6 +49,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "amqplib": "2.2.0",
     "dotenv": "16.4.7",
     "express": "4.22.2",
     "express-openapi-validator": "5.6.2",

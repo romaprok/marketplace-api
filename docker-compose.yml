@@ -63,5 +63,29 @@ services:
       timeout: 3s
       retries: 30
 
+  rabbitmq:
+    # 4.2.x is the LTS line (support until 2030-06-30); 4.3 is the current one
+    image: rabbitmq:4.2.9-management-alpine
+    # quorum queue data is tied to the node name, which comes from the
+    # hostname — a random one would orphan the volume on every recreate
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: marketplace
+      RABBITMQ_DEFAULT_PASS: dev_local_only_changeme
+    ports:
+      - '5672:5672'   # AMQP
+      - '15672:15672' # management UI, look at x-death here
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      # an open port isn't readiness: the Erlang node accepts TCP before it
+      # accepts basic.publish, and clients in that window get ECONNRESET
+      test: ['CMD-SHELL', 'rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_port_connectivity']
+      interval: 5s
+      start_period: 40s
+      timeout: 10s
+      retries: 10
+
 volumes:
   pgdata:
+  rabbitdata:
