@@ -7,6 +7,9 @@ export const envSchema = z.object({
 
   PORT: z.coerce.number().int().positive().default(3000),
 
+  // Read only by npm run orders-api (the Postgres checkout, hw-22).
+  ORDERS_API_PORT: z.coerce.number().int().positive().default(3001),
+
   DB_URL: z
     .string()
     .min(1, "DB_URL is required, e.g. postgres://user@host:5432/dbname")

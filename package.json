@@ -34,7 +34,12 @@
     "consumer": "bash scripts/with-secrets.sh dev node dist/consumer.js",
     "demo:publish": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-publish.js",
     "demo:dlq": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-dlq.js",
-    "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js"
+    "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js",
+    "relay": "bash scripts/with-secrets.sh dev node dist/relay.js",
+    "orders-api": "bash scripts/with-secrets.sh dev node dist/orders-api.js",
+    "demo:outbox": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-outbox.js",
+    "demo:crash-write": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-write.js",
+    "demo:crash-relay": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-relay.js"
   },
   "keywords": [
     "openapi",
@@ -63,6 +68,7 @@
     "@pact-foundation/pact": "^17.1.4",
     "@redocly/cli": "2.46.0",
     "@testcontainers/postgresql": "^12.2.0",
+    "@types/express": "4.17.23",
     "@types/jest": "^30.0.0",
     "@types/node": "22.15.29",
     "@types/pg": "^8.23.1",
