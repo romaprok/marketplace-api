@@ -37,9 +37,14 @@
     "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js",
     "relay": "bash scripts/with-secrets.sh dev node dist/relay.js",
     "orders-api": "bash scripts/with-secrets.sh dev node dist/orders-api.js",
+    "worker": "bash scripts/with-secrets.sh dev node dist/worker.js",
     "demo:outbox": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-outbox.js",
     "demo:crash-write": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-write.js",
-    "demo:crash-relay": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-relay.js"
+    "demo:crash-relay": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-relay.js",
+    "demo:cache": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-cache.js",
+    "demo:session": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-session.js",
+    "demo:ratelimit": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-ratelimit.js",
+    "demo:queue": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-queue.js"
   },
   "keywords": [
     "openapi",
@@ -55,9 +60,11 @@
   "license": "MIT",
   "dependencies": {
     "amqplib": "2.2.0",
+    "bullmq": "6.3.11",
     "dotenv": "16.4.7",
     "express": "4.22.2",
     "express-openapi-validator": "5.6.2",
+    "ioredis": "5.11.1",
     "pg": "8.13.1",
     "reflect-metadata": "0.2.2",
     "socket.io": "4.8.4",

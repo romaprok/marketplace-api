@@ -86,6 +86,39 @@ services:
       timeout: 10s
       retries: 10
 
+  # Two Redis on purpose (hw-23). The cache needs maxmemory + allkeys-lru,
+  # BullMQ needs noeviction: it "cannot work properly if Redis evicts keys
+  # arbitrarily". maxmemory-policy is one per process, SELECT 1 doesn't
+  # split it, so it's two containers.
+  redis-cache:
+    image: redis:8.4.7-alpine
+    # small on purpose, demo:cache fills it to watch LRU work; no
+    # persistence, a cache that comes back empty is still correct
+    command: ['redis-server', '--maxmemory', '32mb', '--maxmemory-policy', 'allkeys-lru', '--save', '', '--appendonly', 'no']
+    ports:
+      - '6380:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # BullMQ jobs and sessions: nothing here may be evicted or lost on restart.
+  # A full instance fails writes loudly instead of dropping a job.
+  redis-queue:
+    image: redis:8.4.7-alpine
+    command: ['redis-server', '--maxmemory', '256mb', '--maxmemory-policy', 'noeviction', '--appendonly', 'yes', '--appendfsync', 'everysec']
+    ports:
+      - '6381:6379'
+    volumes:
+      - redisqueue:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
 volumes:
   pgdata:
   rabbitdata:
+  redisqueue:

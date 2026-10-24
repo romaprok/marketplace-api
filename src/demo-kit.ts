@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { ChannelModel, ConfirmChannel } from 'amqplib';
-import { DataSource } from 'typeorm';
+import { DataSource, type DataSourceOptions } from 'typeorm';
 import { dataSourceOptions } from './data-source.js';
 import { Product } from './entities/Product.js';
 import { User } from './entities/User.js';
@@ -17,11 +17,10 @@ export interface Demo {
 
 const DEMO_EMAIL = '%@demo.test';
 
-// Known starting state for every demo: schema migrated, topology declared,
-// both queues empty, rows from earlier runs gone. Without this a leftover
-// message from a crashed run shows up in this run's numbers.
-export async function prepareDemo(): Promise<Demo> {
-  const ds = new DataSource(dataSourceOptions);
+// Schema migrated and rows from earlier runs gone. The Redis demos (hw-23)
+// stop here, they don't need the broker.
+export async function prepareDb(options: Partial<DataSourceOptions> = {}): Promise<DataSource> {
+  const ds = new DataSource({ ...dataSourceOptions, ...options } as DataSourceOptions);
   await ds.initialize();
   await ds.runMigrations();
 
@@ -34,7 +33,14 @@ export async function prepareDemo(): Promise<Demo> {
   await ds.query(`DELETE FROM orders WHERE buyer_id IN (SELECT id FROM users WHERE email LIKE $1)`, [DEMO_EMAIL]);
   await ds.query(`DELETE FROM products WHERE seller_id IN (SELECT id FROM users WHERE email LIKE $1)`, [DEMO_EMAIL]);
   await ds.query(`DELETE FROM users WHERE email LIKE $1`, [DEMO_EMAIL]);
+  return ds;
+}
 
+// Known starting state for the broker demos: the above, plus topology
+// declared and both queues empty. Without this a leftover message from a
+// crashed run shows up in this run's numbers.
+export async function prepareDemo(): Promise<Demo> {
+  const ds = await prepareDb();
   const conn = await connectBroker();
   const pub = await conn.createConfirmChannel();
   await assertTopology(pub);

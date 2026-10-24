@@ -28,6 +28,11 @@ export const envSchema = z.object({
   // without a broker.
   BROKER_URL: z.string().url().optional(),
 
+  // hw-23: the cache (allkeys-lru) and the queue + sessions box
+  // (noeviction). Two instances, so two URLs. The hw-09 API doesn't use them.
+  REDIS_URL: z.string().url().optional(),
+  REDIS_QUEUE_URL: z.string().url().optional(),
+
   IDEMPOTENCY_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
