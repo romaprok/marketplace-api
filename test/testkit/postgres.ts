@@ -8,6 +8,7 @@ import { OrderItem } from '../../src/entities/OrderItem.js';
 import { Task } from '../../src/entities/Task.js';
 import { InitSchema1789313665216 } from '../../src/migrations/1789313665216-InitSchema.js';
 import { AddStockBalanceTasks1789315001441 } from '../../src/migrations/1789315001441-AddStockBalanceTasks.js';
+import { AddAuth1789600000000 } from '../../src/migrations/1789600000000-AddAuth.js';
 
 export interface TestPostgres {
   container: StartedPostgreSqlContainer;
@@ -37,7 +38,8 @@ export async function startTestPostgres(): Promise<TestPostgres> {
     // can end up resolving a stray import tied to the FIRST file's already
     // torn-down environment ("import a file after the Jest environment has
     // been torn down"). Importing the classes ourselves avoids the glob scan.
-    migrations: [InitSchema1789313665216, AddStockBalanceTasks1789315001441],
+    // AddAuth because the User entity carries role and password_hash since hw-24
+    migrations: [InitSchema1789313665216, AddStockBalanceTasks1789315001441, AddAuth1789600000000],
   });
   await dataSource.initialize();
   await dataSource.runMigrations();
