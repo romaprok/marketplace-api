@@ -19,6 +19,14 @@ export class User {
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 0, transformer: numericTransformer })
   balance!: number;
 
+  // hw-24. The source of truth for permissions; the role in an access token
+  // is only a copy that lives until the token expires.
+  @Column({ type: 'varchar', default: 'buyer' })
+  role!: 'buyer' | 'seller' | 'admin';
+
+  @Column({ name: 'password_hash', type: 'text', nullable: true, select: false })
+  passwordHash!: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
 
