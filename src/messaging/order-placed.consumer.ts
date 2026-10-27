@@ -3,7 +3,8 @@ import type { DataSource } from 'typeorm';
 import { WAREHOUSE_QUEUE } from './topology.js';
 import { parseOrderPlaced, type OrderPlacedEvent } from './order-placed.event.js';
 
-// One INSERT per message, a few ms (README has the measured number).
+// One short transaction per message (inbox mark + effect), 13-30 ms
+// through PgBouncer (README has the measured number).
 // prefetch=1 would leave the consumer idle for a network round trip after
 // every ack. 20 keeps it busy, and even at a pessimistic 1 s per message
 // 20 × 1 s = 20 s, nowhere near the 30 min consumer_timeout.
@@ -18,17 +19,32 @@ export interface ConsumerHooks {
   onCancel?(): void;
 }
 
-// The effect goes through the natural key: one fulfillment per order. A
-// redelivered event hits the primary key and changes nothing, so the
-// operation is safe to repeat without a separate "processed ids" table.
+export const CONSUMER = 'warehouse';
+
+// Two levels of dedup in one transaction.
+// Level 2, inbox: processed_messages remembers which event this consumer has
+// seen. The mark and the effect share a COMMIT, otherwise it's the dual write
+// all over again, just on the consumer's side.
+// Level 1, natural key: one fulfillment per order (PK on order_id). It stays
+// as a backstop for when processed_messages gets cleaned up.
 export async function applyEffect(ds: DataSource, event: OrderPlacedEvent): Promise<boolean> {
-  const rows = await ds.query(
-    `INSERT INTO fulfillments (order_id, event_id) VALUES ($1, $2)
-     ON CONFLICT (order_id) DO NOTHING
-     RETURNING order_id`,
-    [event.data.orderId, event.eventId],
-  );
-  return rows.length === 1;
+  return ds.transaction(async (manager) => {
+    const fresh: unknown[] = await manager.query(
+      `INSERT INTO processed_messages (message_id, consumer) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING
+       RETURNING message_id`,
+      [event.eventId, CONSUMER],
+    );
+    if (fresh.length === 0) return false;
+
+    const rows: unknown[] = await manager.query(
+      `INSERT INTO fulfillments (order_id, event_id) VALUES ($1, $2)
+       ON CONFLICT (order_id) DO NOTHING
+       RETURNING order_id`,
+      [event.data.orderId, event.eventId],
+    );
+    return rows.length === 1;
+  });
 }
 
 function exitOnCancel(): void {
