@@ -8,6 +8,7 @@ import { fingerprint, keysFrom } from './auth/tokens.js';
 import { AppDataSource } from './data-source.js';
 import { createApi } from './http/api.js';
 import { connectCache, connectSessionStore } from './redis/clients.js';
+import { createStorage } from './storage/s3.js';
 
 async function main() {
   const keys = keysFrom(apiEnv);
@@ -18,6 +19,7 @@ async function main() {
     sessionStore: await connectSessionStore(),
     keys,
     pepper: apiEnv.REFRESH_TOKEN_PEPPER,
+    storage: createStorage(apiEnv),
   });
   app.listen(apiEnv.ORDERS_API_PORT, () => {
     // the fingerprint, never the key: enough to tell dev from prod in a log

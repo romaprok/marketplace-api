@@ -8,6 +8,7 @@ import { keysFrom } from './auth/tokens.js';
 import { AppDataSource } from './data-source.js';
 import { createApi } from './http/api.js';
 import { connectCache, connectSessionStore } from './redis/clients.js';
+import { createStorage } from './storage/s3.js';
 
 export type PodMessage = { port: number };
 
@@ -19,6 +20,7 @@ async function main() {
     sessionStore: await connectSessionStore(),
     keys: keysFrom(apiEnv),
     pepper: apiEnv.REFRESH_TOKEN_PEPPER,
+    storage: createStorage(apiEnv),
     // a fresh limiter namespace per demo run, so one run's requests don't
     // count against the next one
     rateLimitName: process.env.DEMO_RATE_LIMIT_NAME,

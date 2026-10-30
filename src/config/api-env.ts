@@ -5,6 +5,7 @@
 // database connection.
 import { createPrivateKey, createPublicKey, KeyObject, sign, verify } from 'node:crypto';
 import { z } from 'zod';
+import { parseOrExit, storageFields } from './storage-env.js';
 
 // PEM travels base64-encoded: a multi-line export doesn't survive every shell
 function keyFromBase64(b64: string, kind: 'private' | 'public'): KeyObject {
@@ -49,6 +50,8 @@ const schema = z
     JWT_PREV_KID: z.string().min(1).optional(),
     JWT_PREV_PUBLIC_KEY: publicKey.optional(),
     REFRESH_TOKEN_PEPPER: z.string().min(32, 'at least 32 characters'),
+
+    ...storageFields,
   })
   .superRefine((env, ctx) => {
     // zod runs this even when a key above failed to parse; that key already has its own message
@@ -64,14 +67,4 @@ const schema = z
 
 export type ApiEnv = z.infer<typeof schema>;
 
-function load(): ApiEnv {
-  const result = schema.safeParse(process.env);
-  if (!result.success) {
-    const problems = result.error.issues.map((i) => `  - ${i.path.join('.') || '(root)'}: ${i.message}`).join('\n');
-    console.error(`Invalid environment configuration:\n${problems}`);
-    process.exit(1);
-  }
-  return result.data;
-}
-
-export const apiEnv = load();
+export const apiEnv: ApiEnv = parseOrExit(schema);
