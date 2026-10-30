@@ -8,7 +8,9 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "start": "node src/server.js",
+    "start": "npm run build --silent && node dist/orders-api.js",
+    "start:vault": "bash scripts/with-secrets.sh dev npm run start",
+    "start:inmemory": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test test/*.test.mjs",
     "lint:spec": "redocly lint openapi/openapi.yaml",
@@ -44,7 +46,14 @@
     "demo:cache": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-cache.js",
     "demo:session": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-session.js",
     "demo:ratelimit": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-ratelimit.js",
-    "demo:queue": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-queue.js"
+    "demo:queue": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-queue.js",
+    "demo:auth": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-auth.js",
+    "demo:reuse": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-reuse.js",
+    "demo:rbac": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-rbac.js",
+    "edge": "bash scripts/with-secrets.sh dev node dist/edge.js",
+    "demo:upload": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-upload.js",
+    "demo:multipart": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-multipart.js",
+    "demo:cdn": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-cdn.js"
   },
   "keywords": [
     "openapi",
@@ -59,12 +68,15 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1150.0",
+    "@aws-sdk/s3-request-presigner": "3.1150.0",
     "amqplib": "2.2.0",
     "bullmq": "6.3.11",
     "dotenv": "16.4.7",
     "express": "4.22.2",
     "express-openapi-validator": "5.6.2",
     "ioredis": "5.11.1",
+    "jose": "6.2.12",
     "pg": "8.13.1",
     "reflect-metadata": "0.2.2",
     "socket.io": "4.8.4",

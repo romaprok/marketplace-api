@@ -33,6 +33,27 @@ export const envSchema = z.object({
   REDIS_URL: z.string().url().optional(),
   REDIS_QUEUE_URL: z.string().url().optional(),
 
+  // hw-24: signing key, its id and the refresh-token pepper. The hw-09 API
+  // doesn't use them, so they are optional here; the Postgres API
+  // (src/config/api-env.ts) requires them and has no defaults on purpose.
+  // No .min(1): .env.example leaves them empty, and a copied .env must still
+  // start the hw-09 API.
+  JWT_KID: z.string().optional(),
+  JWT_PRIVATE_KEY: z.string().optional(),
+  JWT_PUBLIC_KEY: z.string().optional(),
+  JWT_PREV_KID: z.string().optional(),
+  JWT_PREV_PUBLIC_KEY: z.string().optional(),
+  REFRESH_TOKEN_PEPPER: z.string().optional(),
+
+  // hw-26: object storage and the asset edge. Required by the Postgres API and
+  // the edge (src/config/storage-env.ts); the hw-09 API doesn't touch them.
+  STORAGE_ENDPOINT: z.string().optional(),
+  STORAGE_REGION: z.string().optional(),
+  STORAGE_ACCESS_KEY: z.string().optional(),
+  STORAGE_SECRET_KEY: z.string().optional(),
+  STORAGE_BUCKET: z.string().optional(),
+  EDGE_PORT: z.coerce.number().int().min(0).default(9910),
+
   IDEMPOTENCY_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),

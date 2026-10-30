@@ -16,13 +16,20 @@ secrets/db_password → password: () => readFile() → pg.Pool → Postgres
 | Змінна | Обов'язкова | За замовчуванням | Що це |
 |---|---|---|---|
 | `NODE_ENV` | ні | `development` | `development` \| `production` \| `test` |
-| `PORT` | ні | `3000` | Порт, на якому слухає HTTP-сервер |
-| `ORDERS_API_PORT` | ні | `3001` | Порт `npm run orders-api`: checkout з `Idempotency-Key` (hw-22), картка товару і сесія (hw-23) |
+| `PORT` | ні | `3000` | Порт API hw-09 (`npm run start:inmemory`) |
+| `ORDERS_API_PORT` | ні | `3001` | Порт Postgres API (`npm start`, з hw-24): checkout (hw-22), картка товару і сесія (hw-23), auth (hw-24) |
 | `DB_URL` | **так** | — | Рядок підключення без пароля. Веде на PgBouncer, не на Postgres: `postgres://marketplace@localhost:6432/marketplace`. Значення живе у сховищі (dev і prod), у `.env.example` тільки контракт |
 | `DB_PASSWORD_FILE` | ні | `./secrets/db_password` | Шлях до файла з поточним паролем БД |
 | `BROKER_URL` | тільки для подій | — | RabbitMQ з логіном і паролем, порт AMQP: `amqp://user:pass@localhost:5672`. Живе у сховищі (dev і prod) поруч із `DB_URL`, у `.env.example` лише плейсхолдер. HTTP API без нього стартує |
 | `REDIS_URL` | для `orders-api` і демо hw-23 | — | Redis під кеш і лічильники ліміту (allkeys-lru): `redis://localhost:6380`. Живе у сховищі поруч із `DB_URL` |
 | `REDIS_QUEUE_URL` | для `orders-api`, `worker` і демо hw-23 | — | Окремий Redis під BullMQ і сесії (noeviction + AOF): `redis://localhost:6381`. Теж у сховищі |
+| `JWT_KID`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY` | для `npm start` і демо hw-24 | — | Ключ підпису access-токенів ES256 і його id. Тільки у сховищі, деталі в розділі Auth |
+| `JWT_PREV_KID`, `JWT_PREV_PUBLIC_KEY` | лише під час ротації ключа | — | Попередній публічний ключ, теж зі сховища |
+| `REFRESH_TOKEN_PEPPER` | для `npm start` і демо hw-24 | — | Перець для HMAC-хешів refresh-токенів, тільки у сховищі |
+| `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_BUCKET` | для `npm start`, `edge` і демо hw-26 | — | Доступ до S3-сумісного сховища. Тільки у сховищі, деталі в розділі Files |
+| `STORAGE_ENDPOINT` | ні | порожньо (AWS S3) | Адреса S3-сумісного сховища, локально MinIO: `http://localhost:9900` |
+| `STORAGE_REGION` | ні | `us-east-1` | Регіон для підпису SigV4 |
+| `EDGE_PORT` | ні | `9910` | Порт `npm run edge`, кешу перед бакетом |
 | `IDEMPOTENCY_TTL_HOURS` | ні | `24` | Скільки годин пам'ятаємо Idempotency-Key |
 | `LOG_LEVEL` | ні | `info` | `debug` \| `info` \| `warn` \| `error` |
 
@@ -36,7 +43,7 @@ cp .env.example .env
 cp secrets/db_password.example secrets/db_password
 
 docker compose up -d          # піднімає Postgres з тим самим паролем, що в secrets/db_password.example
-npm start
+npm run start:inmemory        # до hw-24 це був npm start; тепер npm start запускає Postgres API (розділ Auth)
 ```
 
 Перевірка, що все підключилось:
@@ -49,7 +56,7 @@ curl http://localhost:3000/health
 Якщо прибрати обов'язкову змінну — процес одразу падає з описом того, що саме не так:
 
 ```bash
-env -u DB_URL npm run start
+env -u DB_URL npm run start:inmemory
 # Invalid environment configuration:
 #   - DB_URL: Required
 ```
@@ -500,7 +507,7 @@ SSE стоїть поза `/v1` (бо саме цю адресу перевір�
 npm ci
 cp .env.example .env
 cp secrets/db_password.example secrets/db_password
-npm start                     # :3000, і HTTP, і socket.io
+npm run start:inmemory        # :3000, і HTTP, і socket.io (до hw-24 це був npm start)
 ```
 
 `docker compose up` для цього ДЗ не потрібен: база потрібна тільки `/health`, а замовлення в памʼяті.
@@ -686,6 +693,8 @@ npm run demo:duplicate
 `BROKER_URL` іде на порт AMQP 5672. Порт 15672 — це вебморда менеджменту (`marketplace` / `dev_local_only_changeme`), там видно `x-death` очима. Демо самі збирають TypeScript і накочують міграції, окремо `npm run build` / `npm run migrate` запускати не треба. Основний шлях без `SKIP_VAULT` той самий: `BROKER_URL` і `DB_URL` приїжджають зі сховища через `scripts/with-secrets.sh`.
 
 ## Outbox та ідемпотентність (hw-22)
+
+З hw-24 `POST /v1/checkout` вимагає access-токен і бере покупця з нього, `X-User-Id` більше не читається (розділ Auth). Приклади з `X-User-Id` нижче описують стан на hw-22.
 
 У hw-19 замовлення комітилось у Postgres, а подія публікувалась окремим кроком уже після COMMIT. Між цими двома записами вміщалося падіння процесу: замовлення є, а події немає. Тепер подія лягає в таблицю `outbox` тієї самої бази тим самим COMMIT, а назовні її виносить окремий relay. Ціна відома наперед. Relay може опублікувати подію двічі, тому консюмер дедуплікує, і робить це на двох рівнях.
 
@@ -923,6 +932,344 @@ npm run demo:queue
 ```
 
 Обидва Redis у dev без пароля. RabbitMQ для цих демо не потрібен. Демо самі збирають TypeScript, `demo:cache` і `demo:queue` ще й накочують міграції. TypeScript лишився на 5.9.3, точною версією без діапазону: саме з нею збирається і тестується BullMQ 6.3.11, тож `npm ci` не притягне 7.x. Основний шлях без `SKIP_VAULT` той самий, `REDIS_URL` і `REDIS_QUEUE_URL` приїжджають зі сховища через `scripts/with-secrets.sh`.
+
+## Auth (hw-24)
+
+До hw-24 `POST /v1/checkout` брав покупця з заголовка `X-User-Id`, тож замовити міг будь-хто від імені будь-кого. Тепер API спершу з'ясовує, хто прийшов: це автентифікація, і доводить її підпис access-токена. Потім окремо вирішує, чи можна цій людині те, що вона просить: це авторизація, тобто роль і власність. Криптографія відповідає лише на перше питання, друге залежить від даних, яких у токені немає.
+
+`npm start` тепер запускає саме Postgres API (`src/orders-api.ts`). Користувачі, замовлення і товари живуть там. Застосунок hw-09 із замовленнями в пам'яті переїхав на `npm run start:inmemory`, і на ньому, як і раніше, стоять Pact-контракт hw-16 і realtime hw-18. `X-User-Id` більше ніде не читається: checkout бере покупця з токена, а рейт-ліміт з hw-23 рахує на `sub` або, для анонімних запитів, на IP.
+
+| Змінна | Джерело | Навіщо |
+|---|---|---|
+| `JWT_PRIVATE_KEY` | сховище (#11) | підпис access-токенів. Base64 від PKCS#8 PEM, EC P-256 |
+| `JWT_PUBLIC_KEY` | сховище (#11) | перевірка підпису. Base64 від SPKI PEM, має бути парою до приватного |
+| `JWT_KID` | сховище (#11) | id ключа, іде в заголовок кожного токена |
+| `REFRESH_TOKEN_PEPPER` | сховище (#11) | «перець» для HMAC-хешів refresh-токенів, щонайменше 32 символи |
+| `JWT_PREV_KID`, `JWT_PREV_PUBLIC_KEY` | сховище, лише під час ротації | попередній ключ: ще перевіряє, вже не підписує |
+| `DB_URL` | сховище (#12) | Postgres через PgBouncer |
+| `REDIS_URL`, `REDIS_QUEUE_URL` | сховище (#23) | кеш і ліміти; черга, сесії і денилист |
+| `DB_PASSWORD_FILE` | шлях з оточення, файл поза git | пароль БД, як з hw-11 |
+| `ORDERS_API_PORT` | оточення, за замовчуванням 3001 | порт API |
+
+Дефолтів для ключів і перцю в схемі немає, бо дефолт тут означає ключ, зашитий у код. Конфіг перевіряється першою дією процесу: `src/config/api-env.ts` імпортується найпершим, ще до `data-source.ts`, який читає `DB_URL` уже при імпорті. Тому голий старт без сховища не встигає дійти до бази і називає, чого бракує:
+
+```
+$ npm start
+Invalid environment configuration:
+  - DB_URL: Required
+  - REDIS_URL: Required
+  - REDIS_QUEUE_URL: Required
+  - JWT_KID: Required
+  - JWT_PRIVATE_KEY: Required
+  - JWT_PUBLIC_KEY: Required
+  - REFRESH_TOKEN_PEPPER: Required
+```
+
+Ключі розбираються одразу. RSA замість EC, обрізаний base64 (той самий `DECODER routines::unsupported`) і публічний ключ від іншої пари теж падають на старті з назвою змінної, до першого підпису. Повний запуск іде через `npm run start:vault`, тобто `scripts/with-secrets.sh dev npm run start`.
+
+### Токени
+
+Access-токен це JWT на 10 хвилин, підписаний ES256. У ньому `sub`, `role`, `fid` (сім'я refresh-токенів), `jti`, `iss`, `aud`, `exp`, а в заголовку `kid` і `typ: at+jwt`. Обрав ES256, бо OWASP позначає RS256 як «Not recommended» і радить ES256, PS256 або EdDSA. З цих трьох у ES256 найменший ключ і підпис (64 байти замість 256 у RSA-2048), підписує він швидше, а P-256 розуміє будь-який шлюз і будь-яка бібліотека. Верифікатор має лише публічний ключ, тож виписати собі токен він не може, хай навіть зламаний.
+
+Перевірка йде через `jwtVerify` з `jose` з явним `algorithms: ['ES256']`, плюс `issuer`, `audience` і `typ`. Що б не стояло в полі `alg` заголовка, приймається тільки ES256: це і є захист від algorithm confusion (RFC 8725 §3.1). Токен з `alg: none` відкидається тим самим правилом, я перевірив. Ключ обирається за `kid` зі списку відомих, невідомий `kid` дає 401.
+
+Refresh-токен непрозорий: 32 випадкові байти, ніякого JWT. У таблиці `refresh_tokens` лежить лише `token_hash = HMAC-SHA256(pepper, token)`, і по ньому стоїть унікальний індекс. Дамп таблиці не дає ні чинних токенів, ні навіть способу перевірити вгаданий, бо перець лежить у сховищі, а не в базі. Живе refresh 14 днів.
+
+Паролі хешуються scrypt (N=2^15, r=8, p=3, близько 32 МіБ і сотні мілісекунд на хеш). Argon2id в `node:crypto` є лише з Node 24.7, курс працює на 22, а scrypt OWASP називає запасним варіантом. Порівняння йде через `timingSafeEqual`. Для невідомого email сервер однаково рахує один хеш, щоб за часом відповіді не можна було перебрати, які адреси зареєстровані.
+
+### Ротація refresh і детекція повтору
+
+Кожен успішний refresh позначає поточний токен `used_at` і видає наступний у тій самій сім'ї (`family_id`). Усе це одна транзакція з `SELECT … FOR UPDATE` по рядку токена, тому два одночасні refresh з одним токеном ідуть по черзі, і другий бачить `used_at`. Токен, який уже витратили, означає, що його тримають двоє, і ми не знаємо, хто з них злодій. Тому відкликається вся сім'я, разом зі свіжим токеном чесного клієнта, а в лог іде рядок:
+
+```
+[auth] refresh token reuse detected: user=3f6c… family=9b1e…, family revoked
+```
+
+Саме так це формулює RFC 9700 §4.14.2: або sender-constrained токен, або ротація з детекцією повтору. Зв'язок між старим і новим токеном (у нас це `family_id`) зберігається, щоб виявлений повтор було чим відкликати. Ротація без сім'ї тут нічого не дає: злодій рефрешиться першим, а чесний клієнт отримує 401 і мовчки логіниться заново, поки сесія злодія живе далі. Заодно сім'я потрапляє в денилист, тож access-токени, які злодій уже отримав, теж помирають одразу, без очікування `exp`.
+
+Гонку на клієнті я вирішив серіалізацією на клієнті, без вікна благодаті. Якщо фронт пошле два refresh одночасно, другий спрацює як повтор і вилогінить користувача. Тому клієнт мусить тримати один спільний проміс на refresh для всіх запитів. Вікно благодаті віддало б пару будь-кому, хто встиг у ці кілька секунд, зокрема й злодієві. До того ж його не зробити чесно без зберігання відкритого нового токена, а в базі в нас тільки хеші.
+
+### Чому логаут це дві дії
+
+Refresh-токен це рядок у базі, і вистачить позначити його сім'ю `revoked_at`. Access-токен самодостатній: підпис лишається чинним до `exp`, і база про нього нічого не знає. Тому другий крок кладе його `jti` в денилист з TTL рівно на залишок життя токена (плюс секунда). Без першого кроку refresh далі виписує нові access-токени. Без другого вкрадений access працює ще до 10 хвилин після логауту. Це видно в числах: коли я вимкнув денилист, `after-logout` став 200. Разом з `jti` у денилист іде й сім'я. Так помирають і старші access-токени того самого логіна, отримані до останнього refresh (`old-access-after-logout=401`).
+
+Ці дві дії пишуть у два різні сховища, і атомарними вони не є, це той самий dual write, що в hw-22. Порядок обрано свідомо. Спершу Postgres: після цього кроку нових access-токенів уже не буде. Потім Redis. Якщо Redis не відповів, клієнт отримує 503 і повторює логаут, обидва кроки ідемпотентні. Найгірше, що лишиться, якщо клієнт не повторить: access доживе до свого `exp`, а refresh уже мертвий.
+
+Денилист лежить у `redis-queue` (noeviction). У кеш-інстансі `allkeys-lru` міг би витіснити запис про відкликаний токен, і той ожив би. Ключ складається з `iss` і `jti`. Кожен запис зникає разом із токеном, який він блокує, тож список ніколи не більший за кількість живих зараз токенів. Якщо Redis з денилистом недоступний під час перевірки, API відповідає 503 і нікого не пускає. Це вибір безпеки проти доступності, і 503 обрано замість 401, щоб клієнти не почали масово рефрешитись.
+
+### 401 і 403
+
+401 означає, що ми не знаємо, хто це: немає токена, протух, зіпсований, підроблений, відкликаний. На 401 клієнт іде рефрешити. 403 означає, що ми точно знаємо, хто це, і відповідь «ні». Рефреш тут не допоможе, клієнт показує помилку. Переплутати їх означає або вічний цикл рефрешу, або вилогінювання на кожній чужій сторінці. 401 віддається разом із `WWW-Authenticate: Bearer error="invalid_token"`.
+
+### Ролі і власність
+
+Ресурс із власником тут замовлення (`orders.buyer_id`). Ресурс, у який пише лише привілейована роль, це товари: створювати їх можуть тільки `seller` і `admin`. Рівень ролі перевіряє гард `requireRole('seller', 'admin')` на `POST /v1/products`, і покупець отримує 403. Продавцем нового товару стає той, хто в токені, а не поле з тіла.
+
+Рівень власності свідомо зроблено поза гардом. Межа проходить в обробнику `GET /v1/orders/:id`, одразу після того, як замовлення завантажено одним запитом: тільки тоді ми знаємо, чиє воно. Немає такого замовлення, буде 404. Є, але воно чуже, буде 403 (адмін бачить усі). Гард стоїть до завантаження, і щоб дізнатись власника, йому довелось би сходити в базу вдруге.
+
+Роль у токені лише кеш, джерело правди це колонка `users.role`. Розжалуваний адмін лишається адміном до `exp` свого access-токена, тобто до 10 хвилин. Наступний refresh бере роль уже з таблиці, бо ротація читає `users.role`, і копія в токені оновлюється. Якщо треба миттєво, лишається відкликати сім'ї цього користувача і покласти їх у денилист. Це два запити, але окремої кнопки для цього я поки не робив. `GET /v1/me` показує обидва значення, `role` з бази і `token_role` з токена.
+
+### Ключ підпису: overlap-ротація і kid
+
+`kid` у заголовку каже верифікатору, яким ключем перевіряти, і завдяки цьому ключ можна міняти без «всі вилогінились». Ротація йде так. Генеруємо нову пару і кладемо її в `JWT_KID`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, а старий публічний ключ переїжджає в `JWT_PREV_KID` і `JWT_PREV_PUBLIC_KEY`. Нові токени вже підписані новим ключем, а старі ще проходять перевірку. Через 10 хвилин (`ACCESS_TTL`) старих токенів у природі не лишилось, і `JWT_PREV_*` прибираємо. Перевірив на двох парах: старий токен приймається під час overlap і отримує 401 «unknown kid» після нього. Refresh-токени від ключа підпису не залежать, тож ротація ключа нікого не вилогінює. З перцем інакше: його зміна робить недійсними всі refresh-токени, і перелогінитись доведеться всім.
+
+Ключі dev і prod різні, і ось їхні відбитки (SHA-256 від публічного ключа в DER). API друкує такий самий рядок при старті, сам ключ не потрапляє в лог ніколи:
+
+```
+dev   kid=dev-2026-10   SHA256:wOpH93ilOg6hAjKf4YeXtFa2mJ_N72KPDRIWeX3uC-I
+prod  kid=prod-2026-10  SHA256:SLfIhamAPAojdUmabcwKUALWAHL2DbG9MfNoxW-Uncw
+```
+
+У логах є `jti`, `family_id` і відбиток ключа, а самих токенів немає: ні access, ні refresh, ні їхніх хвостів. `demo:reuse` перевіряє це по лог-виводу пода (`tokens-in-log=0`).
+
+### Що показали прогони
+
+Свіжий volume, одноразова пара ES256, команди з Grading нижче:
+
+```
+demo:auth                    demo:reuse                  demo:rbac
+login=200                    login=200                   anon=401
+no-token=401                 r1-refresh=200              own=200
+with-token=200               r1-reuse=401                foreign=403
+refresh=200                  r2-after-reuse=401          role-denied=403
+logout=204                   access-after-reuse=401      role-allowed=201
+after-logout=401             family-tokens=2             tampered=401
+refresh-after-logout=401     family-alive-tokens=0       tampered-foreign=401
+old-access-after-logout=401  reuse-logged=1              missing=404
+deny-ttl-sec=601             tokens-in-log=0             checkout=201
+family-alive-tokens=0                                    logins=3
+```
+
+Кожне демо саме піднімає застосунок окремим процесом на вільному порту, з власним простором імен рейт-ліміту, і вбиває його в `finally`. Користувачі створюються з адресами `@demo.test` і прибираються на початку наступного прогону разом зі своїми токенами, замовленнями й товарами. `tampered` це access-токен Аліси, де в payload `role` замінено на `admin`, а підпис лишився старий.
+
+Що я ламав навмисно, щоб перевірити самі демо:
+
+| Що зламав | Що показало демо |
+|---|---|
+| `decodeJwt` замість `jwtVerify` | `tampered=201`, `tampered-foreign=200`, exit 1 |
+| повтор не відкликає сім'ю | `r2-after-reuse=200`, `family-alive-tokens=3`, exit 1 |
+| денилист вимкнено | `after-logout=200`, `old-access-after-logout=200`, exit 1 |
+| гард ролі вимкнено | `role-denied=201`, exit 1 |
+| перевірку власності прибрано | `foreign=200`, exit 1 |
+| 403 віддається як 401 | `role-denied=401`, exit 1 |
+
+### Grading (hw-24: Auth)
+
+```bash
+docker compose up -d --wait
+
+export DB_URL=postgres://marketplace@127.0.0.1:6432/marketplace
+export DB_PASSWORD_FILE=secrets/db_password.example
+export REDIS_URL=redis://127.0.0.1:6380
+export REDIS_QUEUE_URL=redis://127.0.0.1:6381
+export SKIP_VAULT=1            # у грейдера немає доступу до сховища
+
+# одноразова пара ES256 для прогону; PEM їде в base64, щоб багаторядковість не поїхала
+node -e 'const {generateKeyPairSync}=require("node:crypto");
+const k=generateKeyPairSync("ec",{namedCurve:"P-256",
+  privateKeyEncoding:{type:"pkcs8",format:"pem"},
+  publicKeyEncoding:{type:"spki",format:"pem"}});
+const fs=require("node:fs");
+fs.writeFileSync("/tmp/priv.b64",Buffer.from(k.privateKey).toString("base64"));
+fs.writeFileSync("/tmp/pub.b64",Buffer.from(k.publicKey).toString("base64"));'
+export JWT_KID=grader
+export JWT_PRIVATE_KEY="$(cat /tmp/priv.b64)"
+export JWT_PUBLIC_KEY="$(cat /tmp/pub.b64)"
+# щонайменше 32 символи, тому теж генерується
+export REFRESH_TOKEN_PEPPER="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+
+npm ci
+
+npm run demo:auth
+npm run demo:reuse
+npm run demo:rbac
+```
+
+RabbitMQ для цих демо не потрібен. Демо самі збирають TypeScript і накочують міграції. Основний шлях без `SKIP_VAULT` той самий: ключі, перець, `DB_URL` і обидва Redis приїжджають зі сховища через `scripts/with-secrets.sh`.
+
+## Files (hw-26)
+
+У проєкті з'явились файли: фото товарів, аватарки, дампи бази з hw-15. Тека на сервері не годиться вже на другому інстансі, бо файл приймає одна машина, а віддає інша. Тому файли лежать в S3-сумісному сховищі, а шлях «прийняти → зберегти → віддати» побудований так, щоб наш сервіс був на шляху авторизації і не був на шляху даних.
+
+```
+POST /v1/uploads/intent      гард hw-24, allowlist типу, ключ генерує сервер, рядок PENDING
+  ≤ 10 МіБ: presigned PUT                 > 10 МіБ: CreateMultipartUpload
+клієнт → PUT байтів прямо у сховище       POST /v1/uploads/:id/parts → ListParts → URL лише на відсутні частини
+POST /v1/uploads/commit      HeadObject (і розмір) → COMPLETED; для multipart спершу Complete
+GET  /v1/files/:id           гард → 302 на presigned GET на хвилину
+публічні ассети: assets/app.<hash>.css з immutable → edge з кешем → приватний бакет
+```
+
+| Змінна | Джерело | Навіщо |
+|---|---|---|
+| `STORAGE_ACCESS_KEY` | сховище (#11) | ключ доступу до бакета: право читати й писати всі файли |
+| `STORAGE_SECRET_KEY` | сховище (#11) | секрет до нього, ним підписуються presigned URL |
+| `STORAGE_BUCKET` | сховище (#11) | ім'я бакета |
+| `STORAGE_ENDPOINT` | оточення, порожньо для AWS | адреса S3-сумісного сховища, локально MinIO на 9900 |
+| `STORAGE_REGION` | оточення, за замовчуванням `us-east-1` | регіон для підпису SigV4 |
+| `EDGE_PORT` | оточення, за замовчуванням 9910 | порт `npm run edge` |
+
+Ключ від сховища дорожчий за `DB_URL`: з ним читаються і пишуться всі файли, а ще ним підписуються presigned URL, тобто він видає доступ іншим. Тому він живе тільки у сховищі, без дефолтів у схемі. Демо й `npm run edge` ходять через `scripts/with-secrets.sh`. Ключа підпису CloudFront тут немає, бо signed URL CloudFront я не робив (про це нижче).
+
+| Файл | Що там |
+|---|---|
+| `src/migrations/1789700000000-AddFiles.ts` | таблиця `files`: `key`, `owner_id`, `status`, `size`, `upload_id` |
+| `src/files/policy.ts` | allowlist типів, поріг multipart, розмір частини, строки presigned |
+| `src/files/uploads.ts`, `src/http/uploads.route.ts` | intent, URL на частини, commit, скачування через 302 |
+| `src/files/assets.ts` | публікація ассета з хешем вмісту в імені і маніфест |
+| `src/edge/edge.ts`, `src/edge.ts` | edge з кешем перед бакетом (`npm run edge`) |
+| `src/storage/s3.ts`, `src/config/storage-env.ts` | клієнт S3 і його конфіг |
+| `src/demo-upload.ts`, `demo-multipart.ts`, `demo-cdn.ts` (+ `demo-put.ts`, `demo-part-uploader.ts`, `demo-files-kit.ts`) | три демо і їхні дочірні процеси |
+
+### Сховище: чому MinIO і саме цей образ
+
+Локально стоїть MinIO, `bitnamilegacy/minio:2025.7.23`. Офіційні образи MinIO з 2025 року більше не публікуються, і на Docker Hub їх уже немає, тож це архівна збірка Bitnami, закріплена на версії. Для dev вистачає, для проду я б її не брав. Garage, на якому йшла лекція, я теж підняв і перевірив. Протермінований presigned URL він відхиляє з кодом 400 «Date is too old», а AWS і MinIO відповідають 403 AccessDenied, і мінімум 5 МіБ на частину Garage не перевіряє. LocalStack у безкоштовній версії за замовчуванням не перевіряє підпис і доступ до бакета, а саме це ДЗ і має довести. MinIO в усіх цих місцях поводиться як S3. Дані лежать у tmpfs на 1 ГБ, тож кожен `down` дає чистий аркуш. Бакет створює сам образ, а healthcheck зеленіє тільки тоді, коли бакет уже є, а не просто відповідає сервер.
+
+Клієнт створюється з `requestChecksumCalculation: 'WHEN_REQUIRED'`. Presigned URL підписується ще до того, як з'явилось тіло, і з контрольними сумами SDK за замовчуванням у URL поїхала б CRC32 порожніх даних.
+
+### Завантаження: intent → байти → commit
+
+`POST /v1/uploads/intent` стоїть за гардом із hw-24 і приймає `content_type`, `size` і, для UI, `filename`. Тип звіряється з allowlist (`image/jpeg`, `image/png`, `image/webp` до 20 МіБ, `application/gzip` для дампів до 500 ГіБ). Ключ генерує сервер: `uploads/{userId}/{uuid}.{ext}`, а розширення береться з allowlist. Ім'я файла від клієнта в ключ не потрапляє взагалі, інакше клієнт отримав би право писати за будь-яким шляхом у бакеті. Демо шле `../../etc/passwd`, і в ключі його немає. У presigned PUT підписано і `content-type`: завантажити можна тільки той тип, який заявили (`wrong-type=403`). У базі з'являється рядок `PENDING`.
+
+`POST /v1/uploads/commit` слову клієнта не вірить. Він робить HeadObject і звіряє розмір із заявленим, і тільки тоді ставить статус `COMPLETED`. Нічого не залито, отже 409, і рядок лишається `PENDING`. Без цього кроку база знала б про файли, яких немає, а сховище тримало б об'єкти, про які не знає база.
+
+Список файлів користувача береться з таблиці `files`. Листинг бакета для цього не годиться: він платний, повільний і віддає по 1000 ключів.
+
+Приватні файли читаються через `GET /v1/files/:id`. Гард і перевірка власника відпрацьовують на кожен запит, потім іде 302 на presigned GET, який живе хвилину. Так сервіс лишається в шляху авторизації, але байти через нього не ходять. Presigned URL відкликати неможливо: у нього немає ні `jti`, ні реєстру. Тому його не можна класти в лист, який відкриють через тиждень, а давати треба посилання на наш ендпоінт. У логи йдуть `file_id` і ключ, а сам URL ні: рядок у лозі з URL уже є виданим доступом.
+
+### Строки presigned
+
+PUT для фото з форми живе 5 хвилин. Завантаження стартує одразу після вибору файла, і навіть 20 МіБ на 1 Мбіт/с ідуть менше 3 хвилин. Якщо URL витече, ним можна записати лише один об'єкт, ключ якого згенерував сервер, і тільки цього типу. Тиждень, максимум SigV4, тут нічого не дав би, крім довшого вікна для витоку. До того ж у проді сервіс ходить у S3 під роллю STS, і presigned помирає разом із тимчасовими креденшелами, за замовчуванням через годину. URL на частини multipart живуть 15 хвилин і видаються пачками по 50: коли пачка скінчилась або протухла, клієнт просить наступну тим самим запитом, яким відновлюється після обриву. GET для скачування живе 60 с, бо браузер іде за 302 одразу. Що протермінований URL справді дає 403, демо перевіряє на тому самому коді підпису, тільки зі строком 2 с: спершу 200, через 3 с той самий URL дає 403.
+
+### Multipart і довантаження
+
+Поріг 10 МіБ, тобто дві мінімальні частини. Нижче нічого відновлювати: файл умістився б у дві частини, а обрив простого PUT коштує щонайбільше 10 МіБ повторно. Вище обрив коштує лише одну частину. Простий PUT однаково обмежений 5 ГіБ, тож великі дампи йдуть тільки через multipart.
+
+Розмір частини рахується, а не береться константою: `max(5 МіБ, ⌈розмір / 10 000⌉ округлено вгору до МіБ)`. Частин не може бути більше 10 000, і кожна, крім останньої, має бути не менше 5 МіБ. Інакше Complete поверне `EntityTooSmall`, я перевірив на MinIO. Для 11 МіБ це 5 МіБ і три частини, для 100 ГіБ 11 МіБ, для 500 ГіБ 52 МіБ. Бібліотека із жорсткими 5 МіБ на файлі понад 50 ГБ просто впала б.
+
+Відновлення працює так. Intent робить CreateMultipartUpload і повертає розмір і кількість частин. URL на частини дає `POST /v1/uploads/:id/parts`, яка щоразу питає сховище ListParts (з пагінацією по 1000) і підписує тільки те, чого бракує. Перше завантаження і довантаження після обриву тому ходять одним шляхом, і клієнт після рестарту нічого не мусить пам'ятати, крім `file_id`. Commit збирає частини через ListParts, робить CompleteMultipartUpload, потім HeadObject і звіряє розмір. ETag такого об'єкта має суфікс `-N` і MD5 файла не дорівнює, тож перевірка цілісності «порівняю ETag з локальним MD5» на multipart мовчки ламається.
+
+Незавершений multipart тарифікується, хоча об'єкта немає і в листингу його не видно. На AWS для цього потрібне lifecycle-правило, і «видаляти все старше 30 днів» такі хвости не чіпає:
+
+```json
+{ "Rules": [{ "ID": "abort-incomplete-multipart", "Status": "Enabled",
+  "Filter": { "Prefix": "uploads/" },
+  "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 } }] }
+```
+
+Рядки `PENDING` старші за добу мала б добивати джоба BullMQ з hw-23: AbortMultipartUpload, потім DeleteObject, потім видалити рядок. Інакше накопичуються файли-сироти. Я її не робив, вона не оцінюється. Але місце для неї готове: воркер і планувальник уже є.
+
+### CDN: локальний edge замість CloudFront
+
+Обрав локальну форму. `npm run edge` (`src/edge/edge.ts`, близько 40 рядків логіки) віддає тільки `assets/*`. Об'єкт він бере зі сховища своїми креденшелами через SDK, кладе в кеш і відповідає з `X-Cache: HIT` або `MISS`. Це і є суть OAC: до бакета ходить кеш, а не публіка, а прямий анонімний запит у бакет отримує 403. Edge кешує тільки те, що дозволив origin: `public` і `max-age` з `Cache-Control` об'єкта. `no-cache`, `no-store` і `private` він не тримає. Кеш у пам'яті процесу з межею в 1000 записів, справжній CDN теж витісняє. Uploads через edge не віддаються зовсім, вони приватні і читаються через 302.
+
+Для AWS той самий шар це CloudFront з Origin Access Control (OAI застарів), Block Public Access на бакеті і bucket policy, яка пускає лише одну конкретну дистрибуцію:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "CloudFrontReadsPublicAssets",
+    "Effect": "Allow",
+    "Principal": { "Service": "cloudfront.amazonaws.com" },
+    "Action": "s3:GetObject",
+    "Resource": "arn:aws:s3:::marketplace-files/assets/*",
+    "Condition": {
+      "StringEquals": { "AWS:SourceArn": "arn:aws:cloudfront::111122223333:distribution/EDFDVBD6EXAMPLE" }
+    }
+  }]
+}
+```
+
+Без `Condition` з `AWS:SourceArn` політика пустила б будь-яку дистрибуцію CloudFront у світі. `Resource` обмежений `assets/*`, бо приватні uploads через CDN не йдуть.
+
+Для приватного контенту через CloudFront є signed URL і signed cookies, і тоді у сховищі з'явився б ще й ключ підпису CloudFront: право видати доступ до всього приватного в дистрибуції. Це план на випадок, коли приватних файлів стане багато і їх треба буде роздавати з краю. Зараз їх закриває 302 на presigned з бакета. Signed cookies потрібні там, де клієнт тягне десятки файлів поспіль, як у галереї, і окремий URL на кожен вже незручний.
+
+Для прямого PUT із браузера бакету знадобиться ще CORS-правило: `AllowedMethods: ["PUT"]`, `AllowedHeaders: ["content-type"]` і origin фронту. Демо ходять з Node, їм це не потрібно.
+
+### Оновлення без інвалідації
+
+Ім'я публічного ассета містить хеш вмісту: `assets/demo-app.<перші 8 символів sha256>.css`. `Cache-Control: public, max-age=31536000, immutable` ставиться на сам об'єкт при завантаженні, edge його лише читає. Без нього кешувати нічого: я прибрав заголовок, і `cache-hit` став 0. Після «деплою» новий вміст отримує нове ім'я. Старий запис у кеші нікому не заважає, бо його URL більше ніхто не просить, і інвалідацій нуль. Звідки клієнт дізнається нове ім'я: з маніфесту `assets/demo-manifest.json`, єдиного об'єкта з постійним ім'ям. У нього `Cache-Control: no-cache`, і edge його не кешує (`manifest-cache-hit=0`). У справжньому фронті роль маніфесту грає HTML.
+
+Інвалідація CloudFront платна понад 1000 шляхів на місяць, скасувати її не можна, діє вона з обмеженням темпу і не дістає до браузерних і проміжних кешів. AWS для файлів, що часто оновлюються, сам радить насамперед версіонування імен, а не інвалідацію.
+
+### Що показали прогони
+
+Свіжий volume, команди з Grading нижче:
+
+```
+demo:upload                 demo:multipart              demo:cdn
+intent=200                  intent=200                  direct=403
+key-from-server=1           part-size-mib=5             edge-miss=200
+api-alive=0                 parts-total=3               first-was-miss=1
+put-offline=200             first-process-parts=2       edge-hit=200
+put-process-secrets=0       first-process-killed=1      cache-hit=1
+commit=200                  parts-on-store=2            immutable=1
+download=200                head-before-complete=404    new-name=1
+commit-without-bytes=409    already-there=2             manifest-points-to-new=1
+tampered=403                resumed-parts=1             new-url=200
+wrong-type=403              complete=200                content-changed=1
+before-expiry=200           size-match=1                manifest-cache-hit=0
+expired=403                 etag-multipart=1            old-url-still-cached=1
+```
+
+`demo:upload` вимикає наш API перед завантаженням байтів, і живість порту перевіряє сирим сокетом (`api-alive=0`). PUT робить окремий процес, в оточенні якого є лише `PATH` (`put-process-secrets=0`), і отримує 200. Після цього API піднімається на іншому порту, бо `fetch` тримає пул з'єднань на парі host:port, і commit проходить. Потім файл читається назад через 302, байти збігаються. `tampered` це той самий підписаний URL з іншим ключем у шляху: 403, підпис покриває шлях.
+
+`demo:multipart` ріже 11 МіБ на 5 + 5 + 1. Перший процес заливає дві частини й убиває себе `SIGKILL`. Сховище тримає дві частини, але об'єкта ще немає (HeadObject дає 404). Новий процес питає, що вже лежить, бачить дві частини і доливає одну. Після Complete розмір збігається, ETag закінчується на `-3`. Кожен прогін на старті прибирає за попереднім і незавершені завантаження (ListMultipartUploads → AbortMultipartUpload), і об'єкти. Два прогони поспіль дають однакові числа.
+
+`demo:cdn` публікує дві версії CSS. Edge і маніфест поводяться як описано вище.
+
+Що я ламав навмисно, щоб перевірити самі демо:
+
+| Що зламав | Що показало демо |
+|---|---|
+| commit без HeadObject | `commit-without-bytes=200`, exit 1 |
+| `/parts` без ListParts, клієнт заливає все за один прохід | `already-there=0`, `resumed-parts=3`, exit 1 |
+| той самий збій, але клієнт, як і мій, питає ще раз | перезаливає всі частини по колу, поки не впреться в рейт-ліміт (429), exit 1 |
+| публічний бакет (`mc anonymous set download`) | `direct=200`, exit 1 |
+| ім'я без хешу (`assets/demo-app.css`) | `new-name=0`, `content-changed=0`, exit 1 |
+| об'єкт без `Cache-Control` | `cache-hit=0`, exit 1 |
+
+### Дампи з hw-15
+
+У постановці hw-15 стояло «S3 глибоко у #26», і бекап клали в локальну теку. Тепер його місце в тому самому бакеті під `backups/`, multipart з `application/gzip` якраз під це. Lifecycle може переносити старі дампи в дешевші класи. Дві чесні застереги. Glacier ламає RTO, бо об'єкт спершу треба відновити, а це години. І lifecycle не робить бекап перевіреним, restore-drill із hw-15 нікуди не дівається. Сам `scripts/backup.sh` я на S3 не переводив.
+
+### Grading (hw-26: Files)
+
+```bash
+docker compose up -d --wait   # MinIO на 9900, разом з Postgres, PgBouncer і обома Redis
+
+export STORAGE_ENDPOINT=http://127.0.0.1:9900
+export STORAGE_ACCESS_KEY=marketplace
+export STORAGE_SECRET_KEY=dev_local_only_changeme
+export STORAGE_BUCKET=marketplace-files
+export DB_URL=postgres://marketplace@127.0.0.1:6432/marketplace
+export DB_PASSWORD_FILE=secrets/db_password.example
+export REDIS_URL=redis://127.0.0.1:6380
+export REDIS_QUEUE_URL=redis://127.0.0.1:6381
+export SKIP_VAULT=1            # у грейдера немає доступу до сховища
+
+# демо піднімають API з hw-24, йому потрібна пара ES256; одноразова, PEM у base64
+node -e 'const {generateKeyPairSync}=require("node:crypto");
+const k=generateKeyPairSync("ec",{namedCurve:"P-256",
+  privateKeyEncoding:{type:"pkcs8",format:"pem"},
+  publicKeyEncoding:{type:"spki",format:"pem"}});
+const fs=require("node:fs");
+fs.writeFileSync("/tmp/priv.b64",Buffer.from(k.privateKey).toString("base64"));
+fs.writeFileSync("/tmp/pub.b64",Buffer.from(k.publicKey).toString("base64"));'
+export JWT_KID=grader
+export JWT_PRIVATE_KEY="$(cat /tmp/priv.b64)"
+export JWT_PUBLIC_KEY="$(cat /tmp/pub.b64)"
+export REFRESH_TOKEN_PEPPER="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+
+npm ci
+
+npm run demo:upload
+npm run demo:multipart
+npm run demo:cdn
+```
+
+Демо самі збирають TypeScript і накочують міграції. API і edge вони піднімають окремими процесами на вільних портах і вбивають після себе. Основний шлях без `SKIP_VAULT` той самий: ключі сховища, ключ підпису токенів, `DB_URL` і обидва Redis приїжджають зі сховища через `scripts/with-secrets.sh`.
 
 ## Секрети поза git і поза образом
 

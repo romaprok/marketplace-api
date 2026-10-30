@@ -118,6 +118,29 @@ services:
       timeout: 2s
       retries: 15
 
+  # S3-compatible object storage for hw-26. MinIO stopped publishing images in
+  # 2025; this is Bitnami's archived build of the 2025-07-23 release, pinned.
+  # Where this homework looks it behaves like S3: SigV4 is checked, anonymous
+  # and expired requests get 403, parts below 5 MiB are refused. Dev
+  # credentials, same as the database passwords above.
+  storage:
+    image: bitnamilegacy/minio:2025.7.23
+    environment:
+      MINIO_ROOT_USER: marketplace
+      MINIO_ROOT_PASSWORD: dev_local_only_changeme
+      MINIO_DEFAULT_BUCKETS: marketplace-files
+    ports:
+      - '9900:9000' # S3 API
+    # every `down` leaves a clean slate; 1g so a demo series never runs out of room
+    tmpfs:
+      - /bitnami/minio/data:size=1g
+    healthcheck:
+      # healthy once the bucket exists, not merely when the server answers
+      test: ['CMD-SHELL', 'mc alias set local http://127.0.0.1:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 && mc ls local/marketplace-files >/dev/null 2>&1']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
 volumes:
   pgdata:
   rabbitdata:

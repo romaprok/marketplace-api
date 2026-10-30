@@ -1,21 +1,20 @@
 // npm run demo:session — one session across requests and a process restart,
 // stored in Redis, with its TTL pushed forward by activity.
-import { randomUUID } from 'node:crypto';
 import { finish, report, sleep } from './demo-kit.js';
-import { sessionIdFrom, startPod, type Pod } from './demo-redis-kit.js';
+import { demoRateLimitName, sessionIdFrom, startPod, type Pod } from './demo-redis-kit.js';
 import { connectSessionStore } from './redis/clients.js';
 import { sessionKey } from './session/sessions.js';
 
 async function main() {
   const store = await connectSessionStore();
-  // own rate-limit bucket, so other demos running nearby don't interfere
-  const userId = randomUUID();
+  // own rate-limit buckets, so other demos running nearby don't interfere
+  const env = { DEMO_RATE_LIMIT_NAME: demoRateLimitName() };
   const seen = new Set<string>();
   let requests = 0;
   let cookie = '';
 
   const get = async (pod: Pod) => {
-    const res = await fetch(`${pod.url}/v1/session`, { headers: { cookie, 'x-user-id': userId } });
+    const res = await fetch(`${pod.url}/v1/session`, { headers: { cookie } });
     requests++;
     const sid = sessionIdFrom(res);
     if (sid) {
@@ -25,7 +24,7 @@ async function main() {
     return (await res.json()) as { requests: number };
   };
 
-  let pod = await startPod();
+  let pod = await startPod(env);
   await get(pod);
   const sid = [...seen][0]!;
 
@@ -38,7 +37,7 @@ async function main() {
   // restart: the pod process is killed and a new one starts with empty
   // memory. The session has to come back from Redis.
   await pod.close();
-  pod = await startPod();
+  pod = await startPod(env);
   const last = await get(pod);
   await pod.close();
 
