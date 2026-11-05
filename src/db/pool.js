@@ -4,9 +4,12 @@ import { configService } from "../config/config.service.js";
 import { createPasswordReader } from "../config/secret.js";
 
 const dbUrl = new URL(configService.get("DB_URL"));
-const readPassword = createPasswordReader(
-  configService.get("DB_PASSWORD_FILE"),
-);
+// In Kubernetes the password arrives from a Secret as DB_PASSWORD (hw-28).
+// Locally it stays a file that rotate.sh rewrites without a restart (hw-11).
+const envPassword = configService.get("DB_PASSWORD");
+const readPassword = envPassword
+  ? async () => envPassword
+  : createPasswordReader(configService.get("DB_PASSWORD_FILE"));
 
 export const pool = new pg.Pool({
   host: dbUrl.hostname,

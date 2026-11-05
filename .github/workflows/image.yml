@@ -1,0 +1,30 @@
+name: image
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# hw-28: the production image is built the same way as locally and the scan
+# is a gate. The verdict is computed by scripts/scan.mjs; this job only sets
+# the working threshold.
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # the build-time registry token: a repo secret once there is a private
+      # registry; a dummy until then, so the BuildKit secret path is exercised
+      - run: printf '%s' "${NPM_TOKEN:-ci-dummy-token}" > .npm_token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm run image:build
+      - run: npm run demo:image
+      # working threshold: no fixable CRITICAL or HIGH
+      - run: npm run scan
+        env:
+          SCAN_SEVERITY: CRITICAL,HIGH
+          SCAN_MAX: 0

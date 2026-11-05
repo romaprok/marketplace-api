@@ -1,0 +1,31 @@
+name: marketplace-k8s
+description: The course API on a local Kubernetes cluster (hw-28)
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+# Stack config with defaults. The per-stack file (Pulumi.<stack>.yaml) is
+# generated on the first `npm run up` and holds the passphrase salt, which is
+# why it is not in git: someone else's passphrase couldn't open it.
+config:
+  kubeContext:
+    type: string
+    default: kind-marketplace
+  image:
+    type: string
+    default: marketplace-api:hw28
+  # hardened: probes, maxUnavailable 0, drain. naive: none of that, for comparison.
+  profile:
+    type: string
+    default: hardened
+  replicas:
+    type: integer
+    default: 3
+  # bumped by demo:rollout: a pod template change is what starts a rollout
+  rev:
+    type: string
+    default: "1"
+  # the database stays outside the cluster; readiness does not depend on it
+  dbUrl:
+    type: string
+    default: postgres://marketplace@host.docker.internal:6432/marketplace

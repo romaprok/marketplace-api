@@ -1,0 +1,13 @@
+# One-node local cluster for hw-28: npm run cluster:up.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: marketplace
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.34.0
+    # the Service is a NodePort; this makes it reachable from the host as
+    # 127.0.0.1:30080, where demo:rollout sends its load
+    extraPortMappings:
+      - containerPort: 30080
+        hostPort: 30080
+        listenAddress: 127.0.0.1
