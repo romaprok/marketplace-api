@@ -24,15 +24,23 @@ async function main() {
     onAck: () => acked++,
   });
 
-  // the real route, on a random free port
-  const server = express().use(checkoutRouter(demo.ds)).listen(0);
+  // The real route on a random free port. Authentication is hw-24's job and
+  // not what this demo is about, so the buyer is set the way authenticate()
+  // would set it after verifying a token.
+  const server = express()
+    .use((_req, res, next) => {
+      res.locals.auth = { sub: buyerId };
+      next();
+    })
+    .use(checkoutRouter(demo.ds))
+    .listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/checkout`;
   const key = randomUUID();
   const post = (quantity: number) =>
     fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'idempotency-key': key, 'x-user-id': buyerId },
+      headers: { 'content-type': 'application/json', 'idempotency-key': key },
       body: JSON.stringify({ product_id: productId, quantity }),
     });
 

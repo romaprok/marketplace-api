@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Request, RequestHandler } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { sendProblem } from '../http/problem.js';
 
@@ -26,7 +26,7 @@ export interface RateLimitOptions {
   name: string;
   limit: number;
   windowMs: number;
-  key(req: Request): string;
+  key(req: Request, res: Response): string;
 }
 
 export function rateLimit(redis: Redis, opts: RateLimitOptions): RequestHandler {
@@ -37,7 +37,7 @@ export function rateLimit(redis: Redis, opts: RateLimitOptions): RequestHandler 
       [allowed, retryMs] = (await redis.eval(
         SLIDING_WINDOW,
         1,
-        `rl:${opts.name}:${opts.key(req)}`,
+        `rl:${opts.name}:${opts.key(req, res)}`,
         opts.windowMs,
         opts.limit,
         randomUUID(),

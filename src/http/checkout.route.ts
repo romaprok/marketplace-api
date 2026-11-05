@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { z } from 'zod';
+import { authOf, requireAuth } from '../auth/middleware.js';
 import { invalidateProductCard } from '../catalog/product-card.js';
 import { InsufficientBalanceError, InsufficientStockError } from '../checkout.js';
 import { IdempotencyKeyReusedError, placeOrder } from '../place-order.js';
@@ -12,24 +13,21 @@ const bodySchema = z.object({
   product_id: z.string().uuid(),
   quantity: z.number().int().positive(),
 });
-const userIdSchema = z.string().uuid();
 
 // POST /v1/checkout: the Postgres order write behind an Idempotency-Key.
 // No in-memory store like hw-09's middleware. The key lives in
 // idempotency_keys and commits together with the order and its outbox row,
 // so a retry after a crash or from another instance still finds it.
 // With a cache, a new order drops the product card (stock and sales changed).
+// Since hw-24 the buyer is whoever the access token says; X-User-Id is gone.
+// Before that anyone could order in anyone's name.
 export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
   const router = express.Router();
 
-  router.post('/v1/checkout', express.json(), async (req, res) => {
+  router.post('/v1/checkout', requireAuth, express.json(), async (req, res) => {
     const key = req.get('idempotency-key');
     if (!key || key.length > 255) {
       return sendProblem(req, res, 400, 'Bad Request', 'Idempotency-Key header is required (1-255 chars)');
-    }
-    const buyer = userIdSchema.safeParse(req.get('x-user-id'));
-    if (!buyer.success) {
-      return sendProblem(req, res, 400, 'Bad Request', 'X-User-Id header must be the buyer uuid');
     }
     const body = bodySchema.safeParse(req.body);
     if (!body.success) {
@@ -40,7 +38,7 @@ export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
     try {
       const result = await placeOrder(ds, {
         idempotencyKey: key,
-        buyerId: buyer.data,
+        buyerId: authOf(res)!.sub,
         productId: body.data.product_id,
         quantity: body.data.quantity,
       });
