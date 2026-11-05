@@ -45,6 +45,15 @@ export const envSchema = z.object({
   JWT_PREV_PUBLIC_KEY: z.string().optional(),
   REFRESH_TOKEN_PEPPER: z.string().optional(),
 
+  // hw-26: object storage and the asset edge. Required by the Postgres API and
+  // the edge (src/config/storage-env.ts); the hw-09 API doesn't touch them.
+  STORAGE_ENDPOINT: z.string().optional(),
+  STORAGE_REGION: z.string().optional(),
+  STORAGE_ACCESS_KEY: z.string().optional(),
+  STORAGE_SECRET_KEY: z.string().optional(),
+  STORAGE_BUCKET: z.string().optional(),
+  EDGE_PORT: z.coerce.number().int().min(0).default(9910),
+
   IDEMPOTENCY_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),

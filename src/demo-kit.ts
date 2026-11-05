@@ -19,10 +19,16 @@ const DEMO_EMAIL = '%@demo.test';
 
 // Schema migrated and rows from earlier runs gone. The Redis demos (hw-23)
 // stop here, they don't need the broker.
-export async function prepareDb(options: Partial<DataSourceOptions> = {}): Promise<DataSource> {
+// beforeCleanup runs while last run's demo users still exist: the hw-26 demos
+// use it to remove their objects from storage, which no FK cascade reaches.
+export async function prepareDb(
+  options: Partial<DataSourceOptions> = {},
+  beforeCleanup?: (ds: DataSource, demoEmail: string) => Promise<void>,
+): Promise<DataSource> {
   const ds = new DataSource({ ...dataSourceOptions, ...options } as DataSourceOptions);
   await ds.initialize();
   await ds.runMigrations();
+  await beforeCleanup?.(ds, DEMO_EMAIL);
 
   // outbox and processed_messages don't hang off orders by FK, so they go
   // first, found through the buyer in the event payload
