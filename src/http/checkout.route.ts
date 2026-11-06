@@ -1,4 +1,5 @@
 import { STATUS_CODES } from 'node:http';
+import { SpanStatusCode, trace } from '@opentelemetry/api';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
@@ -6,8 +7,11 @@ import { z } from 'zod';
 import { authOf, requireAuth } from '../auth/middleware.js';
 import { invalidateProductCard } from '../catalog/product-card.js';
 import { InsufficientBalanceError, InsufficientStockError } from '../checkout.js';
-import { IdempotencyKeyReusedError, placeOrder } from '../place-order.js';
+import { IdempotencyKeyReusedError, placeOrder, type PlaceOrderHooks } from '../place-order.js';
+import { loggerFor } from '../telemetry/logger.js';
 import { sendProblem } from './problem.js';
+
+const log = loggerFor('checkout.controller');
 
 const bodySchema = z.object({
   product_id: z.string().uuid(),
@@ -21,7 +25,7 @@ const bodySchema = z.object({
 // With a cache, a new order drops the product card (stock and sales changed).
 // Since hw-24 the buyer is whoever the access token says; X-User-Id is gone.
 // Before that anyone could order in anyone's name.
-export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
+export function checkoutRouter(ds: DataSource, cache?: Redis, hooks?: PlaceOrderHooks): express.Router {
   const router = express.Router();
 
   router.post('/v1/checkout', requireAuth, express.json(), async (req, res) => {
@@ -35,13 +39,18 @@ export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
       return sendProblem(req, res, 400, 'Bad Request', detail);
     }
 
+    log.info({ product_id: body.data.product_id, quantity: body.data.quantity }, 'checkout requested');
     try {
-      const result = await placeOrder(ds, {
-        idempotencyKey: key,
-        buyerId: authOf(res)!.sub,
-        productId: body.data.product_id,
-        quantity: body.data.quantity,
-      });
+      const result = await placeOrder(
+        ds,
+        {
+          idempotencyKey: key,
+          buyerId: authOf(res)!.sub,
+          productId: body.data.product_id,
+          quantity: body.data.quantity,
+        },
+        hooks,
+      );
       // a replay answers exactly like the first response, as in hw-09
       if (!result.created) res.set('Idempotency-Replay', 'true');
       else if (cache) await invalidateProductCard(cache, body.data.product_id);
@@ -53,7 +62,12 @@ export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
       if (err instanceof InsufficientStockError || err instanceof InsufficientBalanceError) {
         return sendProblem(req, res, 409, 'Conflict', err.message);
       }
-      console.error('[orders-api] checkout failed:', err);
+      // The error goes into the span too, not only into the log: whoever
+      // opens the trace sees what broke without going to look for the line.
+      const span = trace.getActiveSpan();
+      span?.recordException(err as Error);
+      span?.setStatus({ code: SpanStatusCode.ERROR, message: (err as Error).message });
+      log.error({ err }, 'checkout failed');
       sendProblem(req, res, 500, 'Internal Server Error', 'checkout failed');
     }
   });
@@ -63,7 +77,7 @@ export function checkoutRouter(ds: DataSource, cache?: Redis): express.Router {
   // Four params, or Express won't treat it as an error handler.
   router.use((err: Error & { status?: number }, req: Request, res: Response, _next: NextFunction) => {
     const status = err.status && err.status < 500 ? err.status : 500;
-    if (status === 500) console.error('[orders-api] unexpected error:', err);
+    if (status === 500) log.error({ err }, 'unexpected error');
     sendProblem(req, res, status, STATUS_CODES[status] ?? 'Error', status === 500 ? 'checkout failed' : err.message);
   });
 

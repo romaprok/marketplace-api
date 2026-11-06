@@ -1,0 +1,70 @@
+# The observability stand (hw-29), pulled into ../docker-compose.yml with
+# `include`, so the same `docker compose up -d --wait` brings it up. All
+# ports are in 22900-22999, clear of the earlier homeworks' stands.
+services:
+  tempo:
+    image: grafana/tempo:2.10.10
+    command: ['-config.file=/etc/tempo.yaml']
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+    # tempo runs as uid 10001; a bare tmpfs belongs to root
+    tmpfs:
+      - /var/tempo:mode=1777
+    ports:
+      - '22918:4318' # OTLP over HTTP, where the API sends spans
+      - '22904:3200' # trace by id, for demo:trace and Grafana
+    # No healthcheck here: the image has no shell and no wget. Grafana's
+    # healthcheck asks Tempo's /ready instead, see below.
+
+  prometheus:
+    image: prom/prometheus:v3.15.1
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - '22901:9090'
+    # the API runs on the host; on Linux this name doesn't exist by itself
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:9090/-/ready']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # npm run obs:up brings the stand up through the vault and the password
+      # comes from there; a bare `docker compose up` gets the dev one, the
+      # same as Postgres and MinIO above
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-dev_local_only_changeme}
+      # looking at the dashboard needs no login, changing anything does
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/marketplace-red.json
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      # Grafana 12+ downloads a set of app plugins on every start; none of
+      # them is needed here, and without network the start just waits on them
+      GF_PLUGINS_PREINSTALL_DISABLED: 'true'
+    volumes:
+      # only these two: the image's own plugins/ and alerting/ stay in place
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - '22900:3000'
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    healthcheck:
+      # Healthy once Grafana answers and its trace backend is ready. Tempo
+      # takes ~15 s to join its own ring; spans sent before that are refused,
+      # and demo:trace right after `up --wait` would find nothing.
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:3000/api/health && wget -q -O /dev/null http://tempo:3200/ready']
+      interval: 2s
+      timeout: 3s
+      retries: 60

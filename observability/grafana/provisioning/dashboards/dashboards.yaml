@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: marketplace
+    folder: Marketplace
+    type: file
+    # edits in the UI don't stick; the JSON in the repo is the dashboard
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

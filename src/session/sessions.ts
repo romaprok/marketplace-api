@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import type { RequestHandler } from 'express';
 import type { Redis } from 'ioredis';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('session');
 
 // Rolling: every request pushes the expiry 30 min forward, so an active
 // user is never logged out mid-work and an idle one is gone after 30 min.
@@ -57,7 +60,7 @@ export function sessions(store: Redis): RequestHandler {
       });
     } catch (err) {
       // no store, no session; public pages still work, GET /v1/session says 503
-      console.warn('[session] store unavailable:', (err as Error).message);
+      log.warn({ err: (err as Error).message }, 'store unavailable');
     }
     next();
   };

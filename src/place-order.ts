@@ -1,6 +1,9 @@
 import type { DataSource, EntityManager } from 'typeorm';
 import { checkoutWith } from './checkout.js';
 import { orderPlacedEvent } from './messaging/order-placed.event.js';
+import { loggerFor } from './telemetry/logger.js';
+
+const log = loggerFor('orders.service');
 
 export interface PlaceOrderInput {
   // the client's Idempotency-Key: one key = one intent to buy, whatever the body
@@ -57,8 +60,10 @@ export async function placeOrder(
         [input.idempotencyKey, input.buyerId, input.productId, input.quantity],
       );
       if (!existing!.same) throw new IdempotencyKeyReusedError(input.idempotencyKey);
+      log.info({ order_id: existing!.order_id }, 'replay of an earlier order');
       return { orderId: existing!.order_id, created: false };
     }
+    log.info('idempotency key claimed');
 
     const { orderId, total } = await checkoutWith(manager, input.buyerId, input.productId, input.quantity);
     await manager.query(`UPDATE idempotency_keys SET order_id = $2 WHERE key = $1`, [
@@ -80,6 +85,7 @@ export async function placeOrder(
     );
 
     await hooks.beforeCommit?.(manager);
+    log.info({ order_id: orderId, total }, 'order placed, outbox row written');
     return { orderId, created: true };
   });
 }

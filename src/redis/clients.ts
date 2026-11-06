@@ -1,9 +1,12 @@
 import { Redis } from 'ioredis';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('redis');
 
 function url(name: 'REDIS_URL' | 'REDIS_QUEUE_URL'): string {
   const value = process.env[name];
   if (!value) {
-    throw new Error(`${name} is required: it comes from the vault via scripts/with-secrets.sh (README, Configuration)`);
+    throw new Error(`${name} is required: it comes from the vault via scripts/with-secrets.sh (docs/configuration.md)`);
   }
   return value;
 }
@@ -19,7 +22,7 @@ async function requestPathClient(name: 'REDIS_URL' | 'REDIS_QUEUE_URL'): Promise
     commandTimeout: 500,
   });
   // without a listener every reconnect attempt is an unhandled 'error' event
-  client.on('error', (err) => console.warn(`[redis ${name}]`, err.message));
+  client.on('error', (err) => log.warn({ client: name, err: err.message }, 'redis error'));
   await client.connect();
   return client;
 }
@@ -35,7 +38,7 @@ export const connectSessionStore = () => requestPathClient('REDIS_QUEUE_URL');
 // that is fine off the request path.
 export function cacheBulkConnection(): Redis {
   const client = new Redis(url('REDIS_URL'));
-  client.on('error', (err) => console.warn('[redis REDIS_URL bulk]', err.message));
+  client.on('error', (err) => log.warn({ client: 'REDIS_URL bulk', err: err.message }, 'redis error'));
   return client;
 }
 

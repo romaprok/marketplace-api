@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type { Request, RequestHandler, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { sendProblem } from '../http/problem.js';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('ratelimit');
 
 // Sliding window log in one Lua script. ZREMRANGEBYSCORE + ZCARD + ZADD sent
 // from Node would let another pod slip in between ZCARD and ZADD, and the
@@ -45,7 +48,7 @@ export function rateLimit(redis: Redis, opts: RateLimitOptions): RequestHandler 
     } catch (err) {
       // fail open: the limiter protects capacity, not correctness, and a
       // dead Redis shouldn't turn into a dead API
-      console.warn('[ratelimit] store unavailable, letting the request through:', (err as Error).message);
+      log.warn({ err: (err as Error).message }, 'store unavailable, letting the request through');
       return next();
     }
     if (allowed === 1) return next();

@@ -1,3 +1,8 @@
+# Prometheus, Grafana and Tempo for hw-29 live in observability/ next to
+# their configs; include makes them part of this one stack.
+include:
+  - observability/compose.yaml
+
 services:
   postgres:
     image: postgres:16-alpine

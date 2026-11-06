@@ -4,6 +4,9 @@ import type { DataSource } from 'typeorm';
 import { z } from 'zod';
 import { getProductCard } from '../catalog/product-card.js';
 import { sendProblem } from './problem.js';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('catalog');
 
 const idSchema = z.string().uuid();
 
@@ -18,7 +21,7 @@ export function productCardRouter(ds: DataSource, cache: Redis): express.Router 
       if (!card) return sendProblem(req, res, 404, 'Resource not found', `Product ${id.data} was not found.`);
       res.json(card);
     } catch (err) {
-      console.error('[api] product card failed:', err);
+      log.error({ err }, 'product card failed');
       sendProblem(req, res, 500, 'Internal Server Error', 'product card failed');
     }
   });

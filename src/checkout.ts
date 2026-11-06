@@ -2,6 +2,9 @@ import type { DataSource, EntityManager } from 'typeorm';
 import { Order } from './entities/Order.js';
 import { OrderItem } from './entities/OrderItem.js';
 import { Task } from './entities/Task.js';
+import { loggerFor } from './telemetry/logger.js';
+
+const log = loggerFor('orders.repo');
 
 export class InsufficientStockError extends Error {
   constructor(productId: string) {
@@ -61,6 +64,7 @@ export async function checkoutWith(
   if (stockRows.length === 0) {
     throw new InsufficientStockError(productId);
   }
+  log.info({ product_id: productId, quantity }, 'stock reserved');
   const price = Number(stockRows[0]!.price);
   const total = Math.round(price * quantity * 100) / 100;
 
@@ -71,6 +75,7 @@ export async function checkoutWith(
   if (balanceRows.length === 0) {
     throw new InsufficientBalanceError(buyerId);
   }
+  log.info({ total }, 'balance charged');
 
   const order = manager.create(Order, {
     buyer: { id: buyerId },

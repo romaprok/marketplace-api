@@ -7,8 +7,11 @@ import { authOf, requireAuth } from '../auth/middleware.js';
 import { burnPasswordCheck, verifyPassword } from '../auth/passwords.js';
 import { revokeFamily, rotateRefreshToken, startFamily } from '../auth/refresh.js';
 import { ACCESS_TTL_SEC, signAccessToken, type Keys, type Role } from '../auth/tokens.js';
+import { loggerFor } from '../telemetry/logger.js';
 import { handle } from './async.js';
 import { sendProblem } from './problem.js';
+
+const log = loggerFor('auth');
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
 const refreshSchema = z.object({ refresh_token: z.string().min(1) });
@@ -48,7 +51,7 @@ export function authRouter({ ds, keys, pepper, denylist }: AuthDeps): express.Ro
     }
 
     const { familyId, refresh } = await startFamily(ds, pepper, user.id);
-    console.log(`[auth] login user=${user.id} family=${familyId}`);
+    log.info({ user_id: user.id, family_id: familyId }, 'login');
     res.json(await pair(user, familyId, refresh));
   }));
 
@@ -58,14 +61,12 @@ export function authRouter({ ds, keys, pepper, denylist }: AuthDeps): express.Ro
 
     const result = await rotateRefreshToken(ds, pepper, body.data.refresh_token);
     if (result.kind === 'reuse') {
-      console.warn(
-        `[auth] refresh token reuse detected: user=${result.userId} family=${result.familyId}, family revoked`,
-      );
+      log.warn({ user_id: result.userId, family_id: result.familyId }, 'refresh token reuse detected, family revoked');
       // The refresh side is already dead in Postgres. The access tokens of the
       // family die here too; if Redis is down they live until exp, at most
       // ACCESS_TTL_SEC.
       await denyFamily(denylist, result.familyId).catch((err) =>
-        console.warn('[auth] could not deny family access tokens:', (err as Error).message),
+        log.warn({ err, family_id: result.familyId }, 'could not deny family access tokens'),
       );
     }
     if (result.kind !== 'rotated') return sendProblem(req, res, 401, 'Unauthorized', 'refresh token is invalid');
@@ -83,10 +84,10 @@ export function authRouter({ ds, keys, pepper, denylist }: AuthDeps): express.Ro
     try {
       await denyOnLogout(denylist, auth);
     } catch (err) {
-      console.warn(`[auth] logout family=${auth.fid}: denylist write failed:`, (err as Error).message);
+      log.warn({ err, family_id: auth.fid }, 'logout: denylist write failed');
       return sendProblem(req, res, 503, 'Service Unavailable', 'logout incomplete, retry');
     }
-    console.log(`[auth] logout user=${auth.sub} family=${auth.fid} jti=${auth.jti}`);
+    log.info({ family_id: auth.fid, jti: auth.jti }, 'logout');
     res.status(204).end();
   }));
 

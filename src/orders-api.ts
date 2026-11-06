@@ -1,5 +1,6 @@
 // The Postgres API, npm start (bare) or npm run start:vault (through the vault).
 // The hw-09 in-memory API moved to npm run start:inmemory.
+// Tracing comes in before this file, through node --import (telemetry/otel.ts).
 // apiEnv goes first: it validates the environment before anything below
 // touches the database, so a start without the vault names what's missing.
 import { apiEnv } from './config/api-env.js';
@@ -9,6 +10,9 @@ import { AppDataSource } from './data-source.js';
 import { createApi } from './http/api.js';
 import { connectCache, connectSessionStore } from './redis/clients.js';
 import { createStorage } from './storage/s3.js';
+import { loggerFor } from './telemetry/logger.js';
+
+const log = loggerFor('api');
 
 async function main() {
   const keys = keysFrom(apiEnv);
@@ -23,12 +27,12 @@ async function main() {
   });
   app.listen(apiEnv.ORDERS_API_PORT, () => {
     // the fingerprint, never the key: enough to tell dev from prod in a log
-    console.log(`[api] signing kid=${keys.kid} ${fingerprint(apiEnv.JWT_PUBLIC_KEY)}`);
-    console.log(`[api] listening on http://localhost:${apiEnv.ORDERS_API_PORT}/v1`);
+    log.info({ kid: keys.kid, fingerprint: fingerprint(apiEnv.JWT_PUBLIC_KEY) }, 'signing key');
+    log.info({ url: `http://localhost:${apiEnv.ORDERS_API_PORT}/v1` }, 'listening');
   });
 }
 
 main().catch((err) => {
-  console.error('[api] failed to start:', err.message);
+  log.fatal({ err }, 'failed to start');
   process.exit(1);
 });
