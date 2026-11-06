@@ -10,3 +10,8 @@ docker-compose.override.yml
 backups/
 dist-test/
 pacts/
+# hw-28: the build-time registry token and the local Pulumi backend
+.npm_token
+.pulumi/
+infra/node_modules/
+infra/Pulumi.*.yaml
