@@ -1,0 +1,13 @@
+{
+  "name": "marketplace-infra",
+  "private": true,
+  "main": "index.ts",
+  "dependencies": {
+    "@pulumi/kubernetes": "4.34.2",
+    "@pulumi/pulumi": "3.271.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

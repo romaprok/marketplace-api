@@ -24,6 +24,15 @@ export const envSchema = z.object({
 
   DB_PASSWORD_FILE: z.string().min(1).default("./secrets/db_password"),
 
+  // hw-28: in a pod the password comes from a K8s Secret as an env var and
+  // wins over the file. Not set locally.
+  DB_PASSWORD: z.string().optional(),
+
+  // hw-28: the pause before listen() and the drain after SIGTERM. Both 0
+  // locally; the Deployment sets them.
+  WARMUP_MS: z.coerce.number().int().min(0).default(0),
+  DRAIN_MS: z.coerce.number().int().min(0).default(0),
+
   // Only the order.placed publisher/consumer need it; the HTTP API starts
   // without a broker.
   BROKER_URL: z.string().url().optional(),

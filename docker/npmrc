@@ -1,0 +1,4 @@
+# Used only inside docker/Dockerfile. NPM_TOKEN exists there for one RUN,
+# from a BuildKit secret; it is never written to the image.
+@marketplace-private:registry=https://npm.pkg.github.com/
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}

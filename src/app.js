@@ -24,8 +24,25 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiSpecPath = path.join(__dirname, "..", "openapi", "openapi.yaml");
 
-export function createApp() {
+// isReady / isDraining come from server.js (hw-28). Tests and the contract
+// suite build the app without a server around it, so by default it is ready.
+export function createApp({ isReady = () => true, isDraining = () => false } = {}) {
   const app = express();
+
+  // Kubernetes probes, outside /v1 and the OpenAPI validator. Two questions,
+  // two URLs: /healthz "should I be killed" (the process answers at all),
+  // /readyz "may I get traffic" (warmed up and not shutting down).
+  app.get("/healthz", (req, res) => res.json({ status: "alive" }));
+  app.get("/readyz", (req, res) =>
+    isReady() ? res.json({ status: "ready" }) : res.status(503).json({ status: "not ready" }),
+  );
+  // while draining, keep-alive clients are told to reconnect, and a new
+  // connection lands on a pod that is still ready
+  app.use((req, res, next) => {
+    if (isDraining()) res.set("Connection", "close");
+    next();
+  });
+
   app.use(express.json());
 
   app.get("/health", async (req, res) => {

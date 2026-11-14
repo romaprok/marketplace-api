@@ -13,3 +13,13 @@ Dockerfile
 .dockerignore
 backups
 pgbouncer
+# hw-28: never in a build context
+.npm_token
+.secrets
+.pulumi
+dist
+dist-test
+infra
+demo
+k8s
+docs
