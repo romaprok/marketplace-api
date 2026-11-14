@@ -1,0 +1,11 @@
+global:
+  # every 5 s, so rate(...[1m]) has a dozen points to work with in a one-minute demo
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # The API runs on the host, not in compose: npm run orders-api on 3001,
+  # the demo:metrics pod on 22910. A target that isn't running is just down.
+  - job_name: marketplace-api
+    static_configs:
+      - targets: ['host.docker.internal:3001', 'host.docker.internal:22910']

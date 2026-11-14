@@ -3,9 +3,13 @@ import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { authenticate } from '../auth/middleware.js';
 import type { Keys } from '../auth/tokens.js';
+import type { PlaceOrderHooks } from '../place-order.js';
 import { rateLimit } from '../ratelimit/sliding-window.js';
 import type { Storage } from '../storage/s3.js';
 import { sessions } from '../session/sessions.js';
+import { rememberUser, requestContext } from '../telemetry/context.js';
+import { loggerFor } from '../telemetry/logger.js';
+import { metricsHandler, observeRequests } from '../telemetry/metrics.js';
 import { authRouter } from './auth.route.js';
 import { checkoutRouter } from './checkout.route.js';
 import { ordersRouter } from './orders.route.js';
@@ -26,18 +30,29 @@ export interface ApiDeps {
   storage: Storage;
   // the demos give each run its own limiter buckets; everything else uses 'api'
   rateLimitName?: string;
+  // demo pods only: demo:metrics and demo:trace fail a checkout on purpose
+  placeOrderHooks?: PlaceOrderHooks;
 }
+
+const log = loggerFor('api');
 
 export const API_RATE_LIMIT = { limit: 20, windowMs: 10_000 };
 
 // The Postgres API (npm start). Nothing is kept in process memory, so any
 // number of instances behind a balancer share limits, sessions and the denylist.
-export function createApi({ ds, cache, sessionStore, keys, pepper, storage, rateLimitName = 'api' }: ApiDeps): express.Express {
+export function createApi({ ds, cache, sessionStore, keys, pepper, storage, rateLimitName = 'api', placeOrderHooks }: ApiDeps): express.Express {
   const app = express();
+
+  // Ahead of everything: Prometheus must not hit the rate limiter, and its
+  // scrapes are not traffic to count.
+  app.get('/metrics', metricsHandler);
+  app.use(requestContext());
+  app.use(observeRequests());
 
   // Who is it: verifies a bearer token if there is one, rejects a bad one.
   // Whether they may do something is decided per route below.
   app.use(authenticate(keys, sessionStore));
+  app.use(rememberUser);
   // Before sessions, so a flood of cookie-less requests can't mint sessions.
   // Per user when we know the user, per IP otherwise (login brute force).
   app.use(
@@ -57,12 +72,12 @@ export function createApi({ ds, cache, sessionStore, keys, pepper, storage, rate
   app.use(productCardRouter(ds, cache));
   app.use(productsRouter(ds));
   app.use(ordersRouter(ds));
-  app.use(checkoutRouter(ds, cache));
+  app.use(checkoutRouter(ds, cache, placeOrderHooks));
   app.use(uploadsRouter(ds, storage));
 
   // an async handler that throws must still answer, and in problem+json
   app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[api] unhandled error:', err);
+    log.error({ err }, 'unhandled error');
     if (!res.headersSent) sendProblem(req, res, 500, 'Internal Server Error', 'unexpected error');
   });
 

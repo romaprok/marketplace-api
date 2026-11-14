@@ -8,7 +8,7 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "start": "npm run build --silent && node dist/orders-api.js",
+    "start": "npm run build --silent && node --import ./dist/telemetry/otel.js dist/orders-api.js",
     "start:vault": "bash scripts/with-secrets.sh dev npm run start",
     "start:inmemory": "node src/server.js",
     "dev": "node --watch src/server.js",
@@ -38,7 +38,7 @@
     "demo:dlq": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-dlq.js",
     "demo:duplicate": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-duplicate.js",
     "relay": "bash scripts/with-secrets.sh dev node dist/relay.js",
-    "orders-api": "bash scripts/with-secrets.sh dev node dist/orders-api.js",
+    "orders-api": "bash scripts/with-secrets.sh dev node --import ./dist/telemetry/otel.js dist/orders-api.js",
     "worker": "bash scripts/with-secrets.sh dev node dist/worker.js",
     "demo:outbox": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-outbox.js",
     "demo:crash-write": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-crash-write.js",
@@ -62,7 +62,11 @@
     "destroy": "bash scripts/with-secrets.sh dev bash scripts/pulumi-destroy.sh",
     "demo:image": "node demo/image.mjs",
     "demo:rollout": "bash scripts/with-secrets.sh dev node demo/rollout.mjs",
-    "demo:pdb": "node demo/pdb.mjs"
+    "demo:pdb": "node demo/pdb.mjs",
+    "demo:logs": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-logs.js",
+    "demo:metrics": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-metrics.js",
+    "demo:trace": "npm run build --silent && bash scripts/with-secrets.sh dev node dist/demo-trace.js",
+    "obs:up": "bash scripts/with-secrets.sh dev docker compose up -d --wait"
   },
   "keywords": [
     "openapi",
@@ -79,6 +83,17 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1150.0",
     "@aws-sdk/s3-request-presigner": "3.1150.0",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/context-async-hooks": "3.0.0",
+    "@opentelemetry/core": "3.0.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.300.0",
+    "@opentelemetry/instrumentation": "0.300.0",
+    "@opentelemetry/instrumentation-express": "0.72.0",
+    "@opentelemetry/instrumentation-http": "0.300.0",
+    "@opentelemetry/instrumentation-pg": "0.77.0",
+    "@opentelemetry/resources": "3.0.0",
+    "@opentelemetry/sdk-trace": "3.0.0",
+    "@prometheus-io/client": "0.16.1",
     "amqplib": "2.2.0",
     "bullmq": "6.3.11",
     "dotenv": "16.4.7",
@@ -87,6 +102,7 @@
     "ioredis": "5.11.1",
     "jose": "6.2.12",
     "pg": "8.13.1",
+    "pino": "10.4.0",
     "reflect-metadata": "0.2.2",
     "socket.io": "4.8.4",
     "typeorm": "0.3.31",

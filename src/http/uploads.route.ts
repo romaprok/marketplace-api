@@ -6,6 +6,9 @@ import { commitUpload, createIntent, downloadUrl, planParts, UploadError } from 
 import type { Storage } from '../storage/s3.js';
 import { handle } from './async.js';
 import { sendProblem } from './problem.js';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('files');
 
 const intentSchema = z.object({
   content_type: z.string().min(1),
@@ -33,7 +36,7 @@ export function uploadsRouter(ds: DataSource, storage: Storage): express.Router 
     if (!body.success) return sendProblem(req, res, 400, 'Bad Request', 'content_type and a positive integer size are required');
     try {
       const intent = await createIntent(ds, storage, authOf(res)!.sub, { contentType: body.data.content_type, size: body.data.size });
-      console.log(`[files] intent file=${intent.file_id} key=${intent.key} multipart=${Boolean(intent.multipart)}`);
+      log.info({ file_id: intent.file_id, key: intent.key, multipart: Boolean(intent.multipart) }, 'upload intent');
       res.json(intent);
     } catch (err) {
       fail(req, res, err);
@@ -55,7 +58,7 @@ export function uploadsRouter(ds: DataSource, storage: Storage): express.Router 
     if (!body.success) return sendProblem(req, res, 400, 'Bad Request', 'file_id must be a uuid');
     try {
       const file = await commitUpload(ds, storage, authOf(res)!.sub, body.data.file_id);
-      console.log(`[files] committed file=${file.file_id} key=${file.key} size=${file.size}`);
+      log.info({ file_id: file.file_id, key: file.key, size: file.size }, 'upload committed');
       res.json(file);
     } catch (err) {
       fail(req, res, err);

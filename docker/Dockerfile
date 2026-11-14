@@ -16,7 +16,7 @@ COPY docker/npmrc ./.npmrc
 RUN --mount=type=secret,id=npm_token,required=true \
     NPM_TOKEN="$(cat /run/secrets/npm_token)" npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM gcr.io/distroless/nodejs22-debian13:nonroot@sha256:8ad9cc935b7843c4024b7e1487b5ef472c354ea847b97c667023e2618552607e
+FROM gcr.io/distroless/nodejs22-debian13:nonroot@sha256:39c66687298417dbf3ff2fb8b6012c20554494e16414ef7afd07b9abbb45b501
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules

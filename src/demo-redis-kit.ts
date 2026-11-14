@@ -16,11 +16,14 @@ export const demoRateLimitName = () => `demo-${randomUUID()}`;
 
 // A replica of the Postgres API in a child process (src/demo-pod.ts). The
 // caller always closes it; if the demo itself dies, the pod sees the IPC
-// channel drop and exits too.
-export async function startPod(env: Record<string, string> = {}): Promise<Pod> {
+// channel drop and exits too. traced: OpenTelemetry loaded ahead of the app,
+// the way npm run orders-api starts.
+export async function startPod(env: Record<string, string> = {}, { traced = false } = {}): Promise<Pod> {
+  const otel = new URL('./telemetry/otel.js', import.meta.url).href;
   const child = fork(fileURLToPath(new URL('./demo-pod.js', import.meta.url)), {
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env, ...env },
+    execArgv: traced ? [...process.execArgv, '--import', otel] : process.execArgv,
   });
   let output = '';
   child.stdout!.on('data', (chunk) => (output += chunk));

@@ -1,6 +1,9 @@
 import type { Redis } from 'ioredis';
 import type { DataSource } from 'typeorm';
 import { cacheAside } from '../cache/cache-aside.js';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('catalog');
 
 export interface ProductCard {
   id: string;
@@ -48,6 +51,6 @@ export async function invalidateProductCard(cache: Redis, productId: string): Pr
   try {
     await cache.del(productCardKey(productId));
   } catch (err) {
-    console.warn('[cache] invalidation failed, the TTL will catch up:', (err as Error).message);
+    log.warn({ err: (err as Error).message, product_id: productId }, 'cache invalidation failed, the TTL will catch up');
   }
 }

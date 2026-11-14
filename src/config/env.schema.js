@@ -63,6 +63,14 @@ export const envSchema = z.object({
   STORAGE_BUCKET: z.string().optional(),
   EDGE_PORT: z.coerce.number().int().min(0).default(9910),
 
+  // hw-29: where the Postgres API sends its spans (src/telemetry/otel.ts
+  // refuses to start without it) and where the demos read things back. The
+  // hw-09 API doesn't trace. The Grafana password is for the compose stand.
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
+  PROMETHEUS_URL: z.string().optional(),
+  TRACE_API_URL: z.string().optional(),
+  GRAFANA_ADMIN_PASSWORD: z.string().optional(),
+
   IDEMPOTENCY_TTL_HOURS: z.coerce.number().int().positive().default(24),
 
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),

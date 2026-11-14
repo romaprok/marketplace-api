@@ -7,7 +7,7 @@ import * as pulumi from '@pulumi/pulumi';
 // purpose. A default here would be a password baked into the repo.
 const dbPassword = process.env.DB_PASSWORD;
 if (!dbPassword) {
-  throw new Error('DB_PASSWORD is required: it comes from the vault via scripts/with-secrets.sh (README, Kubernetes)');
+  throw new Error('DB_PASSWORD is required: it comes from the vault via scripts/with-secrets.sh (docs/hw-28-kubernetes.md)');
 }
 
 const config = new pulumi.Config();

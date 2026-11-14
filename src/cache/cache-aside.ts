@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { loggerFor } from '../telemetry/logger.js';
+
+const log = loggerFor('cache');
 
 // TTL = 300 + random(0..60) s. Keys warmed in one go must not expire in the
 // same second, or the cache makes its own stampede.
@@ -31,7 +34,7 @@ async function safe<T>(op: () => Promise<T>): Promise<T | typeof DOWN> {
   try {
     return await op();
   } catch (err) {
-    console.warn('[cache] redis call failed, falling back to the database:', (err as Error).message);
+    log.warn({ err: (err as Error).message }, 'redis call failed, falling back to the database');
     return DOWN;
   }
 }
